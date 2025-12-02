@@ -1,0 +1,13 @@
+monenv/
+__pycache__/
+*.xopp
+# Ignore venv
+
+# Python junk
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+
