@@ -24,6 +24,7 @@ D_rod = 10.3e-3 # [m]
 Pitch = 21.2e-3 # [m]
 relative_wall_roughness = 1e-3
 heat_flux_pin_avg = 2.4e6 # [W/m²]
+g = 9.80665 # [m/s²]
 
 #===First exercise: Calculate friction monophase pressure drop through channel without heating===
 #=== For a mass flow rate ranging from 0 to 2.5 kg/s ===
@@ -43,8 +44,8 @@ for mass_flow_rate in mass_flow_rate_list:
         f_1 = 64 / Re_1  # Laminar flow
     if Re_1 > 30000:
         f_1 = 0.184 * Re_1**(-0.2)
-        if Re_1 > 1e6:
-            print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_1)
+        # if Re_1 > 1e6:
+        #     print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_1)
     dp_friction = f_1 * (L_heated / D_pipe_1) * (rho_subcooled * u_1**2 / 2) / 1e5 # [bar]
     dp_friction_list_1.append(dp_friction)
 # #===Plot the friction pressure drop===
@@ -68,8 +69,8 @@ for mass_flow_rate in mass_flow_rate_list:
         f_2 = 64 / Re_2  # Laminar flow
     if Re_2 > 30000:
         f_2 = 0.184 * Re_2**(-0.2)
-        if Re_2 > 1e6:
-            print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_2)
+        # if Re_2 > 1e6:
+        #     print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_2)
     dp_friction = f_2 * (L_heated / Hydraulic_diameter) * (rho_subcooled * u_2**2 / 2) / 1e5 # [bar]
     dp_friction_list_2.append(dp_friction)
 # #===Plot the friction pressure drop===
@@ -127,8 +128,8 @@ rho_L_D = steamTable.rhoL_p(p_in) # [kg/m³]
 rho_G_D = steamTable.rhoV_p(p_in) # [kg/m³]
 void_fraction_D = 1/(1 + ((1 - x_in_D)/x_in_D) * (rho_G_D/rho_L_D)) # [-]
 rho_m_D = void_fraction_D * rho_G_D + (1 - void_fraction_D) * rho_L_D # [kg/m³]
-print(f'Void fraction at inlet quality of 0.15: {void_fraction_D}')
-print(f'Mixture density at inlet quality of 0.15: {rho_m_D} kg/m³')
+# print(f'Void fraction at inlet quality of 0.15: {void_fraction_D}')
+# print(f'Mixture density at inlet quality of 0.15: {rho_m_D} kg/m³')
 dp_acc__D = 0 # No acceleration in adiabatic case without change in quality
 friction_factor_L0_list_D = []
 dp_grav_D = rho_m_D * 9.81 * L_heated / 1e5 # [bar]
@@ -145,8 +146,8 @@ for mass_flow_rate in mass_flow_rate_list:
         friction_factor_L0_D = 64 / Re_L0_D  # Laminar flow
     if Re_L0_D > 30000:
         friction_factor_L0_D = 0.184 * Re_L0_D**(-0.2)
-        if Re_L0_D > 1e6:
-            print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_L0_D)
+        # if Re_L0_D > 1e6:
+        #     print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_L0_D)
     friction_factor_L0_list_D.append(friction_factor_L0_D)
     friction_factor_TP_D = friction_factor_L0_D * (mu_ratio_D)**0.2
     dp_fric = (friction_factor_TP_D * (L_heated / Hydraulic_diameter) * (G_m_D**2 / (2 * rho_m_D))) / 1e5 # [bar]
@@ -202,8 +203,8 @@ for mass_flow_rate in mass_flow_rate_list:
         friction_factor_L0_E = 64 / Re_L0_E  # Laminar flow
     if Re_L0_E > 30000:
         friction_factor_L0_E = 0.184 * Re_L0_E**(-0.2)
-        if Re_L0_E > 1e6:
-            print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_L0_E)
+        # if Re_L0_E > 1e6:
+        #     print('Reynolds number out of range for McAdams correlation: Re_C = ', Re_L0_E)
     #===Integration over the heated length===
     dp_grav_E_dz = lambda z: 9.81 * (void_fraction_E(z) * rho_G_E + (1 - void_fraction_E(z)) *rho_L_E) # [Pa/m]
     dp_grav_E, _  = quad(dp_grav_E_dz, 0, L_heated)
@@ -216,21 +217,21 @@ for mass_flow_rate in mass_flow_rate_list:
 
     dp_acc_E = G_m_E**2 * (1/rho_m_plus(rho_L_E, rho_G_E, x_out_E) - 1/rho_m_plus(rho_L_E, rho_G_E, x_in_E)) # [Pa]
     dp_acc_list_E.append(dp_acc_E / 1e5) # [bar]
-    
-    print(f'Mass Flow Rate: {mass_flow_rate} kg/s, dp_grav: {dp_grav_E/1e5} bar, dp_acc: {dp_acc_E/1e5} bar, dp_fric: {dp_fric_E/1e5} bar')
-    
+
+    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, dp_grav: {dp_grav_E/1e5} bar, dp_acc: {dp_acc_E/1e5} bar, dp_fric: {dp_fric_E/1e5} bar}')
+
     dp_tot_E = (dp_grav_E + dp_acc_E + dp_fric_E) / 1e5 # [bar]
     dp_tot_list_E.append(dp_tot_E)
     
     
-#===Plot the two phase pressure drop===
-plt.plot(mass_flow_rate_list, dp_tot_list_E, label='Inlet quality = 0.0, Outlet quality = 0.15')
-plt.xlabel('Mass Flow Rate [kg/s]')
-plt.ylabel('Two Phase Pressure Drop [bar]')
-plt.title('Two Phase Pressure Drop vs Mass Flow Rate')
-plt.legend()
-plt.grid()
-plt.show()
+# #===Plot the two phase pressure drop===
+# plt.plot(mass_flow_rate_list, dp_tot_list_E, label='Inlet quality = 0.0, Outlet quality = 0.15')
+# plt.xlabel('Mass Flow Rate [kg/s]')
+# plt.ylabel('Two Phase Pressure Drop [bar]')
+# plt.title('Two Phase Pressure Drop vs Mass Flow Rate')
+# plt.legend()
+# plt.grid()
+# plt.show()
 
 
 #===Third exercise: Axial heat flux distribution===
@@ -245,21 +246,22 @@ mass_flow_rate_F = 0.1 # [kg/s]
 heat_flux_pin_max = heat_flux_pin_avg / (2 / math.pi) # [W/m²]
 heat_flux_pin = lambda z: heat_flux_pin_max * (math.cos(math.pi * z / L_heated)) # [W/m²], z = 0 at the middle of the heated length
 
-#=== Graphical representation of the axial heat flux distribution ===
-n_axial = 100
-z_values = [i * 1/n_axial for i in range(-int((L_heated/2)*n_axial), int((L_heated/2)*n_axial))] # [m]
-heat_flux_values = [heat_flux_pin(z) for z in z_values]
-plt.plot(heat_flux_values, z_values)
-plt.ylabel('Axial Position [m]')
-plt.xlabel('Heat Flux [W/m²]')
-plt.title('Axial Heat Flux Distribution')
-plt.grid()
-plt.show()
+# #=== Graphical representation of the axial heat flux distribution ===
+# n_axial = 100
+# z_values = [i * 1/n_axial for i in range(-int((L_heated/2)*n_axial), int((L_heated/2)*n_axial))] # [m]
+# heat_flux_values = [heat_flux_pin(z) for z in z_values]
+# plt.plot(heat_flux_values, z_values)
+# plt.ylabel('Axial Position [m]')
+# plt.xlabel('Heat Flux [W/m²]')
+# plt.title('Axial Heat Flux Distribution')
+# plt.grid()
+# plt.show()
 
 # #===Verification of the average heat flux calculation===
 # integral_heat_flux = sum(heat_flux_values) * 1/n_axial # [W/m²]
 # average_heat_flux = integral_heat_flux / L_heated # [W/m²]
 # print(f'Calculated Average Heat Flux: {average_heat_flux} W/m²')
+
 
 #===Find axial position of bulk boiling point (zB)===
 def bulk_boiling_point_eq(z):
@@ -269,7 +271,6 @@ def bulk_boiling_point_eq(z):
     #===Calculate enthalpy at position z===
     q_dz = lambda z: heat_flux_pin(z) * (math.pi * D_rod ) # [W]
     h_m_z = h_in + (quad(q_dz, -L_heated/2, z)[0]/ mass_flow_rate_F)  / 1000 # [kJ/kg]
-
     
     #===Check if the temperature at position z is equal to the saturation temperature===
     h_l_sat = steamTable.hL_p(p_in) # [kJ/kg]
@@ -277,7 +278,7 @@ def bulk_boiling_point_eq(z):
 
 zB_solution = fsolve(bulk_boiling_point_eq, 0.01) # Initial guess at the middle of the heated length
 zB = zB_solution[0]
-print(f'Axial position of bulk boiling point from the channel inlet (zB): {zB + (L_heated/2)} m')
+# print(f'Axial position of bulk boiling point from the channel inlet (zB): {zB + (L_heated/2)} m')
 
 
 #===Find axial position where the flow (dynamic quality) is one. This is were we have saturated vapour (zV)===
@@ -293,61 +294,179 @@ def saturated_vapour_point_eq(z):
     #===Calculate dynamic quality at position z===
     h_l_sat = steamTable.hL_p(p_in) # [kJ/kg]
     h_g_sat = steamTable.hV_p(p_in) # [kJ/kg]
-    x_dyn_z = (h_m_z - h_l_sat) / (h_g_sat - h_l_sat) # [-]
+    x_e = (h_m_z - h_l_sat) / (h_g_sat - h_l_sat) # [-]
     
-    return x_dyn_z - 1.0    
+    return x_e - 1.0    
 zV_solution = fsolve(saturated_vapour_point_eq, 0.02) # Initial guess at the middle of the heated length
 zV = zV_solution[0]
-print(f'Axial position of saturated vapour point from the channel inlet (zV): {zV + (L_heated/2)} m')
-
-   
+# print(f'Axial position of saturated vapour point from the channel inlet (zV): {zV + (L_heated/2)} m')
 
 
-#===B Find axial position where the flow (dynamic quality) is one▪This is werewe have saturated vapour (zV)===
 
 
-# #===Plot the total pressure drop and its individual components ===
-# #=== in function of the mass flow rate through the subchannel. ===
-# mass_flow_rate_list = []
-# dp_total_list = []
-# dp_friction_list = []
-# dp_elevation_list = []
-# dp_acceleration_list = []
+#===Find axial position where the flow (dynamic quality) is zero: bubble detachment (zD) (start of subcool boiling)===
 
-# for mdot in range(0, 2.5, 10): # [kg/s]
-#     mass_flow_rate_list.append(mdot)
+#Using Saha and Zuber correlation or Stanton for bubble detachment (low flow rates), and also do you have to conscider the local or the average heat flux? (check in the book)
+
+
+def bubble_detachment_point_eq(z):
+    #===Calculate inlet properties===
+    h_in = steamTable.h_pt(p_in, T_in) # [kJ/kg]
     
+    #===Calculate parameters at position z===
+    q_dz = lambda z: heat_flux_pin(z) * (math.pi * D_rod ) # [W]
+    h_m_z = h_in + (quad(q_dz, -L_heated/2, z)[0]/ mass_flow_rate_F)  / 1000 # [kJ/kg]
+
+    G_m = mass_flow_rate_F / A_flow # [kg/m²/s]
+    Peclet = G_m * Hydraulic_diameter * steamTable.CpL_p(p_in) * 1e3 / steamTable.tcL_p(p_in) # [-] Or insted using the value at satutation, use the local one but need an iterative process
+    # print(f'Peclet number at z = {z} m: {Peclet}')
+    if Peclet < 7e4:
+        #Use Nusselt correlation
+        Nusselt_departure = 455
+        T_bulk = steamTable.tsat_p(p_in) - (heat_flux_pin(z) * Hydraulic_diameter) / (Nusselt_departure * steamTable.tcL_p(p_in))
+    else:
+        #Use Stanton correlation
+        Stanton_departure = 6.5e-3
+        T_bulk = steamTable.tsat_p(p_in) - (heat_flux_pin(z)) / (Stanton_departure * G_m * steamTable.CpL_p(p_in) * 1e3)
+
+    
+    #===Find the z where the enthalpy gives a temperature equal to the bulk temperature calculated above===
+    h_bulk = steamTable.h_pt(p_in, T_bulk) # [kJ/kg]
+    return h_m_z - h_bulk
+
+zD_solution = fsolve(bubble_detachment_point_eq, -1) # Initial guess at the middle of the heated length
+zD = zD_solution[0]
+print(f'value of zD (from middle of heated length): {zD} m')
+print(f'Axial position of bubble detachment point from the channel inlet (zD): {zD + (L_heated/2)} m')
+
+
+
+# #===Ze is when x and xe are equal===
+# def equilibrium_point_eq(z):
 #     #===Calculate inlet properties===
 #     h_in = steamTable.h_pt(p_in, T_in) # [kJ/kg]
-#     rho_in = steamTable.rho_ph(p_in, h_in) # [kg/m³]
-#     v1 = 1 / rho_in # [m³/kg]
-    
-#     #===Calculate outlet properties===
-#     G = mdot / A_flow # [kg/m²/s]
-#     q_total = heat_flux_pin_avg * (3.1416 * D_rod * L_heated) # [W]
-#     h2 = h_in + q_total / mdot / 1000 # [kJ/kg]
-#     p2 = p_in # [bar], assuming negligible pressure drop for outlet enthalpy calculation
-#     T2 = steamTable.t_ph(p2, h2) # [°C]
-#     rho2 = steamTable.rho_ph(p2, h2) # [kg/m³]
-#     v2 = 1 / rho2 # [m³/kg]
-    
-#     #===Calculate pressure drop components===
-#     # Frictional pressure drop
-#     Re_C = G * D_rod / steamTable.my_ph(p_in, h_in) # Reynolds number
-#     f = steamTable.friction_factor(Re_C, relative_wall_roughness / D_rod) # Darcy friction factor
-#     dp_friction = f * (L_heated / D_rod) * (G**2 / (2 * rho_in)) / 100000 # [bar]
-    
-#     # Elevation pressure drop
-#     g = 9.81 # [m/s²]
-#     dp_elevation = rho_in * g * L_heated / 100000 # [bar]
-    
-#     # Acceleration pressure drop
-#     dp_acceleration = G**2 * (v2 - v1) / 100000 # [bar]
-    
-#     # Total pressure drop
-#     dp_total = dp_friction + dp_elevation + dp_acceleration
-    
-#     dp_total_list.append(dp_total)
-#     dp_friction_list.append(dp_friction)
-#     dp_elevation_list.append(dp_elevation)
-#     dp_acceleration_list.append(dp_acceleration)
+
+#     #===Calculate parameters at position z===
+#     q_dz = lambda z: heat_flux_pin(z) * (math.pi * D_rod ) # [W]
+#     h_m_z = h_in + (quad(q_dz, -L_heated/2, z)[0]/ mass_flow_rate_F)  / 1000 # [kJ/kg]
+
+#     #===Calculate dynamic quality at position z===
+#     h_l_sat = steamTable.hL_p(p_in) # [kJ/kg]
+#     h_g_sat = steamTable.hV_p(p_in) # [kJ/kg]
+#     x_e = (h_m_z - h_l_sat) / (h_g_sat - h_l_sat) # [-]
+
+#     return x_e - 1.0
+# zE_solution = fsolve(equilibrium_point_eq, 0.03) # Initial guess at the middle of the heated length
+# zE = zE_solution[0]
+# print(f'Axial position of equilibrium point from the channel inlet (zE): {zE + (L_heated/2)} m')
+
+
+
+#=== FINAL EXAM CHALLENGE : Plot the total pressure drop through the subchanneland its individual components in function of the mass flow rate ===
+#=== for mass flow rates ranging from 0 to 2.5 kg/s.===
+#=== Use McAdams correlation for the two phase pressure drop and Coolebrook for the monophase pressure drop===
+#=== Assume constant material properties and use the inlet pressure to calculate those for the subcooled region===
+#=== E.g. Four graphs (liquid, two phase, vapour, total) with each three components (acceleration, gravity and friction) ===
+
+n_mass_flow_rate = 10
+mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
+
+#===First graph: Liquid region (from 0 to zB)===
+rho_liquid = steamTable.rho_pt(p_in, T_in) # [kg/m³]
+mu_liquid = steamTable.my_pt(p_in, T_in) # [Pa.s]
+# print(f'Liquid density at inlet conditions: {rho_liquid} kg/m³')
+# print(f'Liquid viscosity at inlet conditions: {mu_liquid} Pa.s')
+
+dp_acc_list_liquid = []
+dp_fric_list_liquid = []
+dp_grav_list_liquid = []
+dp_tot_list_liquid = []
+
+for mass_flow_rate in mass_flow_rate_list_final:
+    u_liquid = mass_flow_rate / (rho_liquid * A_flow)
+    Re_liquid = rho_liquid * u_liquid * Hydraulic_diameter / mu_liquid
+    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Liquid Reynolds number: {Re_liquid}')
+    #===Acceleration pressure drop===
+    dp_acc_liquid = 0 # No acceleration in subcooled region (in reality there is a small acceleration due to change in density with temperature)
+    dp_acc_list_liquid.append(dp_acc_liquid)
+    #===Friction pressure drop===
+    # Look at the dependance of corelation with Reynolds number
+    if Re_liquid < 2100:
+        f_liquid = 64 / Re_liquid  # Laminar flow
+    elif 2100 <= Re_liquid < 3000:
+        # Transitional flow, use linear interpolation between laminar and turbulent
+        f_laminar = 64 / Re_liquid
+        f_turbulent = colebrook_root(Re_liquid, relative_wall_roughness)
+        f_liquid = f_laminar + (f_turbulent - f_laminar) * ((Re_liquid - 2100) / (3000 - 2100))
+    else:
+        f_liquid = colebrook_root(Re_liquid, relative_wall_roughness)
+    dp_friction_liquid = f_liquid * ((zB + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
+    dp_fric_list_liquid.append(dp_friction_liquid)
+    #===Gravity pressure drop===
+    dp_gravity_liquid = rho_liquid * g * (zB + (L_heated/2)) / 1e5
+    dp_grav_list_liquid.append(dp_gravity_liquid)
+    #===Total pressure drop===
+    dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
+    dp_tot_list_liquid.append(dp_total_liquid)
+
+#===Plot the liquid region pressure drop components===
+plt.plot(mass_flow_rate_list_final, dp_acc_list_liquid, label='Acceleration Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_fric_list_liquid, label='Friction Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_grav_list_liquid, label='Gravity Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_tot_list_liquid, label='Total Pressure Drop')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Pressure Drop [bar]')
+plt.title('Pressure Drop Components in Liquid Region vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()
+
+
+#===Second graph: Two phase region (from zB to zV)===
+dp_acc_list_two_phase = []
+dp_fric_list_two_phase = []
+dp_grav_list_two_phase = []
+dp_tot_list_two_phase = []
+
+for mass_flow_rate in mass_flow_rate_list_final:
+    #===Calculate properties at bulk boiling point===
+    h_in = steamTable.h_pt(p_in, T_in) # [kJ/kg]
+    q_dz = lambda z: heat_flux_pin(z) * (math.pi * D_rod ) # [W]
+    h_m_zB = h_in + (quad(q_dz, -L_heated/2, zB)[0]/ mass_flow_rate)  / 1000 # [kJ/kg]
+    x_in_TP = (h_m_zB - steamTable.hL_p(p_in)) / (steamTable.hV_p(p_in) - steamTable.hL_p(p_in)) # [-]
+    rho_L_TP = steamTable.rhoL_p(p_in) # [kg/m³]
+    rho_G_TP = steamTable.rhoV_p(p_in) # [kg/m³]
+    void_fraction_TP = 1/(1 + ((1 - x_in_TP)/x_in_TP) * (rho_G_TP/rho_L_TP)) # [-]
+    rho_m_TP = void_fraction_TP * rho_G_TP + (1 - void_fraction_TP) * rho_L_TP # [kg/m³]
+    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Mixture density at bulk boiling point: {rho_m_TP} kg/m³')
+
+    #===Acceleration pressure drop===
+    G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]
+    dp_acc_TP = G_m_TP**2 * (1/rho_m_plus(rho_L_TP, rho_G_TP, 0.15) - 1/rho_m_plus(rho_L_TP, rho_G_TP, x_in_TP)) / 1e5
+    dp_acc_list_two_phase.append(dp_acc_TP)
+    #===Friction pressure drop (using McAdams correlation)===
+    u_m_TP = mass_flow_rate / (rho_m_TP * A_flow)
+    Re_m_TP = rho_m_TP * u_m_TP * Hydraulic_diameter / steamTable.my_pt(p_in, T_in)
+    if Re_m_TP < 30000:
+        f_TP = 64 / Re_m_TP  # Laminar flow
+    if Re_m_TP > 30000:
+        f_TP = 0.184 * Re_m_TP**(-0.2)
+    dp_friction_TP = f_TP * ((zV - zB) / Hydraulic_diameter) * (rho_m_TP * u_m_TP**2 / 2) / 1e5
+    dp_fric_list_two_phase.append(dp_friction_TP)
+    #===Gravity pressure drop===
+    dp_gravity_TP = rho_m_TP * g * (zV - zB) / 1e5
+    dp_grav_list_two_phase.append(dp_gravity_TP)
+    #===Total pressure drop===
+    dp_total_TP = dp_acc_TP + dp_friction_TP + dp_gravity_TP
+    dp_tot_list_two_phase.append(dp_total_TP)
+#===Plot the two phase region pressure drop components===   
+plt.plot(mass_flow_rate_list_final, dp_acc_list_two_phase, label='Acceleration Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_fric_list_two_phase, label='Friction Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_grav_list_two_phase, label='Gravity Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_tot_list_two_phase, label='Total Pressure Drop')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Pressure Drop [bar]')
+plt.title('Pressure Drop Components in Two Phase Region vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()
