@@ -59,8 +59,8 @@ for mass_flow_rate in mass_flow_rate_list:
 
 #===B : Then for the actual BWR subchannel still with McAdams correlation===
 A_flow = (Pitch**2 - math.pi * (D_rod/2)**2) # [m²]
-Perimeter_flow = math.pi * D_rod # [m]
-Hydraulic_diameter = 4 * A_flow / Perimeter_flow # [m] 
+Perimeter_heated = math.pi * D_rod # [m]
+Hydraulic_diameter = 4 * A_flow / Perimeter_heated # [m] 
 dp_friction_list_2 = []
 for mass_flow_rate in mass_flow_rate_list:
     u_2 = mass_flow_rate/(rho_subcooled * A_flow)
@@ -212,7 +212,7 @@ for mass_flow_rate in mass_flow_rate_list:
     phi_2_L0_E = lambda z: mu_ratio_E(z)**0.2 * (rho_L_E / rho_m_E(z))
     dp_fric_E_dz = lambda z: (friction_factor_L0_E * (G_m_E**2) / (Hydraulic_diameter * 2 * rho_L_E)) * phi_2_L0_E(z) # [Pa/m]
     dp_fric_E, _ = quad(dp_fric_E_dz, 0, L_heated)
-    dp_fric_list_E.append(dp_fric_E / 1e5) # [bar]
+    dp_fric_list_E.append(dp_fric_E / 1e5) # [bar] 
 
     dp_acc_E = G_m_E**2 * (1/rho_m_plus(rho_L_E, rho_G_E, x_out_E) - 1/rho_m_plus(rho_L_E, rho_G_E, x_in_E)) # [Pa]
     dp_acc_list_E.append(dp_acc_E / 1e5) # [bar]
@@ -230,6 +230,7 @@ for mass_flow_rate in mass_flow_rate_list:
 # plt.legend()
 # plt.grid()
 # plt.show()
+
 
 
 #===Third exercise: Axial heat flux distribution===
@@ -411,6 +412,16 @@ def friction_factor_1phase(Re, rel_rough):
         return f_laminar + (f_turbulent - f_laminar) * ((Re - 2100) / (3000 - 2100))
     else:
         return colebrook_root(Re, rel_rough)
+    
+def phi_2_L0_McAdams(x, p):
+    mu_L = PropsSI('VISCOSITY', 'P', p * 1e5, 'Q', 0, 'Water') # [Pa.s]
+    mu_G = PropsSI('VISCOSITY', 'P', p * 1e5, 'Q', 1, 'Water') # [Pa.s]
+    mu_ratio = 1/(1 + x * (mu_L/mu_G - 1)) # [-]
+    rho_L = steamTable.rhoL_p(p) # [kg/m³]
+    return mu_ratio**0.2 * (rho_L / rho_m(x, p))  # [-]
+
+def Re(mass_flow_rate, mu, A_flow, Hydraulic_diameter):
+    return mass_flow_rate * Hydraulic_diameter / (A_flow * mu)
 
 #=== FINAL EXAM CHALLENGE : Plot the total pressure drop through the subchanneland its individual components in function of the mass flow rate ===
 #=== for mass flow rates ranging from 0 to 2.5 kg/s.===
@@ -421,7 +432,7 @@ def friction_factor_1phase(Re, rel_rough):
 #===Before : Write enthalpy and equilibrium quality in terms of height, mass flux and heating===
 
 #===Graphs of h and xe  along z for mass flow rate = 1 kg/s===
-mass_flow_rate_graphs = 1 # [kg/s]
+mass_flow_rate_graphs = 0.1 # [kg/s]
 n_axial_G = 20
 z_values_G = [i * L_heated / n_axial_G - (L_heated/2) for i in range(n_axial_G +1)] # [m]
 
@@ -447,7 +458,7 @@ x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]
 #===First totaly HEM ===
 
 
-n_mass_flow_rate = 100
+n_mass_flow_rate = 20
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zB)===
@@ -507,52 +518,53 @@ dp_tot_list_two_phase = []
 #=== rho_L use for friction should be at saturation===
 
 for mass_flow_rate in mass_flow_rate_list_final:
-    G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]
     zB_sol = zB(mass_flow_rate)
     zV_sol = zV(mass_flow_rate, p_in)
-    print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m')
-    x_in_TP_HEM = 0.0 # [-]
-    x_out_TP_HEM = 1.0 # [-]
+    p_in_TP = p_in - dp_tot_list_liquid[mass_flow_rate_list_final.index(mass_flow_rate)]  # [bar]
+    p_out_TP = p_in_TP  # Initial guess, can be improved with iteration
+    # print(f'For mass flow rate {mass_flow_rate} kg/s, pressure at two phase region inlet: {p_in_TP} bar')
+    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
+    if zB_sol == L_heated/2:
+        # No two phase region
+        dp_acc_list_two_phase.append(0.0)
+        dp_fric_list_two_phase.append(0.0)
+        dp_grav_list_two_phase.append(0.0)
+        dp_tot_list_two_phase.append(0.0)
+        continue
 
-    #===Calculate properties at bulk boiling point===
-    # h_m_zB = h_m_z(zB(mass_flow_rate), mass_flow_rate) # [kJ/kg]
-    # x_e_in_TP = (x_e_z(zB(mass_flow_rate), mass_flow_rate, p_in)) # [-]
-    #ECRIRE UNE FONCTION AU DESSUS QUI DONNE X EN FONCTION DE X_E
-
-    # rho_L_TP = steamTable.rhoL_p(p_in) # [kg/m³]
-    # rho_G_TP = steamTable.rhoV_p(p_in) # [kg/m³]
-    # void_fraction_TP = void_fraction(x_in_TP, p_in) # [-]
-    # rho_m_TP = rho_m(x_in_TP, p_in) # [kg/m³]
-    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Mixture density at bulk boiling point: {rho_m_TP} kg/m³')
-
-    # #===Acceleration pressure drop===
-    # 
-    # dp_acc_TP = G_m_TP**2 
-    # dp_acc_list_two_phase.append(dp_acc_TP)
+    else:
     
-    # #===Friction pressure drop (using McAdams correlation)===
-    # u_m_TP = mass_flow_rate / (rho_m_TP * A_flow)
-    # Re_m_TP = rho_m_TP * u_m_TP * Hydraulic_diameter / steamTable.my_pt(p_in, T_in)
-    # if Re_m_TP < 30000:
-    #     f_TP = 64 / Re_m_TP  # Laminar flow
-    # if Re_m_TP > 30000:
-    #     f_TP = 0.184 * Re_m_TP**(-0.2)
-    # dp_friction_TP = f_TP * ((zV - zB) / Hydraulic_diameter) * (rho_m_TP * u_m_TP**2 / 2) / 1e5
-    # dp_fric_list_two_phase.append(dp_friction_TP)
-    # #===Gravity pressure drop===
-    # dp_gravity_TP = rho_m_TP * g * (zV - zB) / 1e5
-    # dp_grav_list_two_phase.append(dp_gravity_TP)
-    # #===Total pressure drop===
-    # dp_total_TP = dp_acc_TP + dp_friction_TP + dp_gravity_TP
-    # dp_tot_list_two_phase.append(dp_total_TP)
-# #===Plot the two phase region pressure drop components===   
-# plt.plot(mass_flow_rate_list_final, dp_acc_list_two_phase, label='Acceleration Pressure Drop')
-# plt.plot(mass_flow_rate_list_final, dp_fric_list_two_phase, label='Friction Pressure Drop')
-# plt.plot(mass_flow_rate_list_final, dp_grav_list_two_phase, label='Gravity Pressure Drop')
-# plt.plot(mass_flow_rate_list_final, dp_tot_list_two_phase, label='Total Pressure Drop')
-# plt.xlabel('Mass Flow Rate [kg/s]')
-# plt.ylabel('Pressure Drop [bar]')
-# plt.title('Pressure Drop Components in Two Phase Region vs Mass Flow Rate')
-# plt.legend()
-# plt.grid()
-# plt.show()
+        G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]    
+        x_in_TP_HEM = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
+        x_out_TP_HEM = x_e_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
+
+        # #===Acceleration pressure drop===
+        dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP_HEM, p_out_TP) - 1/rho_m(x_in_TP_HEM, p_in_TP)) / 1e5  # [bar]
+        dp_acc_list_two_phase.append(dp_acc_TP)
+
+        #===Gravity pressure drop===
+        dp_gravity_TP = quad(lambda z: rho_m(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zB_sol, zV_sol)[0] / 1e5 # [bar]
+        dp_grav_list_two_phase.append(dp_gravity_TP)
+        
+        # #===Friction pressure drop (using McAdams correlation)===
+        mu_LO = PropsSI('VISCOSITY', 'P', p_in_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
+        Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
+        friction_factor_L0 = friction_factor_1phase(Re_LO, relative_wall_roughness)  # Using the liquid only Reynolds number at the inlet of the two phase region
+        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+        dp_fric_list_two_phase.append(dp_friction_TP)
+        
+        #===Total pressure drop===
+        dp_total_TP = dp_acc_TP + dp_gravity_TP + dp_friction_TP
+        dp_tot_list_two_phase.append(dp_total_TP)
+
+#===Plot the two phase region pressure drop components===   
+plt.plot(mass_flow_rate_list_final, dp_acc_list_two_phase, label='Acceleration Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_fric_list_two_phase, label='Friction Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_grav_list_two_phase, label='Gravity Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_tot_list_two_phase, label='Total Pressure Drop')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Pressure Drop [bar]')
+plt.title('Pressure Drop Components in Two Phase Region vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()
