@@ -172,7 +172,6 @@ for mass_flow_rate in mass_flow_rate_list:
 # plt.grid()
 # plt.show()
 
-
 def rho_m_plus(rho_L, rho_G, x):
     return 1 / (x / rho_G + (1 - x) / rho_L)
 
@@ -318,7 +317,21 @@ def saturated_vapour_point_eq(z, mass_flow_rate, p):
     return x_e_z(z, mass_flow_rate, p) - 1.0
 
 def zV(mass_flow_rate, p):
-    return min(float(fsolve(saturated_vapour_point_eq, 0.02, args=(mass_flow_rate, p))[0]), L_heated/2)
+
+    # Quality at channel outlet
+    x_out = x_e_z(L_heated/2, mass_flow_rate, p)
+
+    # If we never reach x=1, return outlet
+    if x_out < 1.0:
+        return L_heated/2
+
+    # Otherwise solve for saturated vapor point
+    sol = fsolve(saturated_vapour_point_eq, 0.0, args=(mass_flow_rate, p))
+    z_val = float(sol[0])
+
+    # Safety clamp
+    return min(max(z_val, -L_heated/2), L_heated/2)
+
 
 zV_F = zV(mass_flow_rate_F, p_in)
 #print(f'Axial position of saturated vapour point from the channel inlet (zV): {zV_F + (L_heated/2)} m')
@@ -339,6 +352,7 @@ def bubble_detachment_point_eq(z, mass_flow_rate):
         #Use Stanton correlation
         Stanton_departure = 6.5e-3
         T_bulk = steamTable.tsat_p(p_in) - (heat_flux_pin(z)) / (Stanton_departure * G_m * steamTable.CpL_p(p_in) * 1e3)
+        #print(f'cp at saturation: {steamTable.CpL_p(p_in)} kJ/kg.K')
     
     #===Find the z where the enthalpy gives a temperature equal to the bulk temperature calculated above===
     h_bulk = steamTable.h_pt(p_in, T_bulk) # [kJ/kg]
@@ -376,10 +390,27 @@ def void_fraction_HEM(x, p):
     rho_G = steamTable.rhoV_p(p)
     return x/(x +  (rho_G/rho_L) * (1 - x)) # [-]
 
+# def rho_m(x, p):
+#     rho_L = steamTable.rhoL_p(p)
+#     rho_G = steamTable.rhoV_p(p)
+#     return void_fraction_HEM(x, p) * rho_G + (1 - void_fraction_HEM(x, p)) * rho_L # [kg/m³] 
+
 def rho_m(x, p):
     rho_L = steamTable.rhoL_p(p)
     rho_G = steamTable.rhoV_p(p)
-    return void_fraction_HEM(x, p) * rho_G + (1 - void_fraction_HEM(x, p)) * rho_L # [kg/m³] 
+    return 1 / (x / rho_G + (1 - x) / rho_L)
+
+
+def friction_factor_1phase(Re, rel_rough):
+    if Re < 2100:
+        return 64 / Re  # Laminar flow
+    elif 2100 <= Re < 3000:
+        # Transitional flow, use linear interpolation between laminar and turbulent
+        f_laminar = 64 / Re
+        f_turbulent = colebrook_root(Re, rel_rough)
+        return f_laminar + (f_turbulent - f_laminar) * ((Re - 2100) / (3000 - 2100))
+    else:
+        return colebrook_root(Re, rel_rough)
 
 #=== FINAL EXAM CHALLENGE : Plot the total pressure drop through the subchanneland its individual components in function of the mass flow rate ===
 #=== for mass flow rates ranging from 0 to 2.5 kg/s.===
@@ -413,6 +444,8 @@ x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]
 # plt.show()
 
 
+#===First totaly HEM ===
+
 
 n_mass_flow_rate = 100
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
@@ -439,16 +472,7 @@ for mass_flow_rate in mass_flow_rate_list_final:
     dp_acc_liquid = 0 # No acceleration in subcooled region (in reality there is a small acceleration due to change in density with temperature)
     dp_acc_list_liquid.append(dp_acc_liquid)
     #===Friction pressure drop===
-    # Look at the dependance of corelation with Reynolds number
-    if Re_liquid < 2100:
-        f_liquid = 64 / Re_liquid  # Laminar flow
-    elif 2100 <= Re_liquid < 3000:
-        # Transitional flow, use linear interpolation between laminar and turbulent
-        f_laminar = 64 / Re_liquid
-        f_turbulent = colebrook_root(Re_liquid, relative_wall_roughness)
-        f_liquid = f_laminar + (f_turbulent - f_laminar) * ((Re_liquid - 2100) / (3000 - 2100))
-    else:
-        f_liquid = colebrook_root(Re_liquid, relative_wall_roughness)
+    f_liquid = friction_factor_1phase(Re_liquid, relative_wall_roughness)
     dp_friction_liquid = f_liquid * ((zB_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
     dp_fric_list_liquid.append(dp_friction_liquid)
     #===Gravity pressure drop===
@@ -458,7 +482,7 @@ for mass_flow_rate in mass_flow_rate_list_final:
     dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
     dp_tot_list_liquid.append(dp_total_liquid)
 
-#comparer la température en à zb avec celle de l'enthalpie calculée et celle de la formule slide 16 cours 14
+#comparer la température en zb avec celle de l'enthalpie calculée et celle de la formule slide 16 cours 14
 
 #===Plot the liquid region pressure drop components===
 plt.plot(mass_flow_rate_list_final, dp_acc_list_liquid, label='Acceleration Pressure Drop')
@@ -482,14 +506,17 @@ dp_tot_list_two_phase = []
 #===Levy correlation to link x and xe===
 #=== rho_L use for friction should be at saturation===
 
-
-
 for mass_flow_rate in mass_flow_rate_list_final:
     G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]
+    zB_sol = zB(mass_flow_rate)
+    zV_sol = zV(mass_flow_rate, p_in)
+    print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m')
+    x_in_TP_HEM = 0.0 # [-]
+    x_out_TP_HEM = 1.0 # [-]
 
     #===Calculate properties at bulk boiling point===
-    h_m_zB = h_m_z(zB(mass_flow_rate), mass_flow_rate) # [kJ/kg]
-    x_e_in_TP = (x_e_z(zB(mass_flow_rate), mass_flow_rate, p_in)) # [-]
+    # h_m_zB = h_m_z(zB(mass_flow_rate), mass_flow_rate) # [kJ/kg]
+    # x_e_in_TP = (x_e_z(zB(mass_flow_rate), mass_flow_rate, p_in)) # [-]
     #ECRIRE UNE FONCTION AU DESSUS QUI DONNE X EN FONCTION DE X_E
 
     # rho_L_TP = steamTable.rhoL_p(p_in) # [kg/m³]
@@ -500,8 +527,9 @@ for mass_flow_rate in mass_flow_rate_list_final:
 
     # #===Acceleration pressure drop===
     # 
-    # dp_acc_TP = G_m_TP**2 * (1/rho_m_plus(rho_L_TP, rho_G_TP, 0.15) - 1/rho_m_plus(rho_L_TP, rho_G_TP, x_in_TP)) / 1e5
+    # dp_acc_TP = G_m_TP**2 
     # dp_acc_list_two_phase.append(dp_acc_TP)
+    
     # #===Friction pressure drop (using McAdams correlation)===
     # u_m_TP = mass_flow_rate / (rho_m_TP * A_flow)
     # Re_m_TP = rho_m_TP * u_m_TP * Hydraulic_diameter / steamTable.my_pt(p_in, T_in)
