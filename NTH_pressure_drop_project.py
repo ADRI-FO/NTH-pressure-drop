@@ -290,7 +290,7 @@ def bulk_boiling_point_eq(z, mass_flow_rate):
 
 zB_solution = fsolve(bulk_boiling_point_eq, 0.01, args=(mass_flow_rate_F,)) # Initial guess at the middle of the heated length
 zB = zB_solution[0]
-# print(f'Axial position of bulk boiling point from the channel inlet (zB): {zB + (L_heated/2)} m')
+#print(f'Axial position of bulk boiling point from the channel inlet (zB): {zB + (L_heated/2)} m')
 
 
 #===Find axial position where the flow (dynamic quality) is one. This is were we have saturated vapour (zV)===
@@ -300,7 +300,7 @@ def saturated_vapour_point_eq(z, mass_flow_rate, p):
 
 zV_solution = fsolve(saturated_vapour_point_eq, 0.02, args=(mass_flow_rate_F, p_in)) # Initial guess at the middle of the heated length
 zV = zV_solution[0]
-# print(f'Axial position of saturated vapour point from the channel inlet (zV): {zV + (L_heated/2)} m')
+#print(f'Axial position of saturated vapour point from the channel inlet (zV): {zV + (L_heated/2)} m')
 
 
 #===Find axial position where the flow (dynamic quality) is zero: bubble detachment (zD) (start of subcool boiling)===
@@ -350,14 +350,15 @@ zD = zD_solution[0]
 # print(f'Axial position of equilibrium point from the channel inlet (zE): {zE + (L_heated/2)} m')
 
 
-
-def void_fraction(x, p):
+def void_fraction_HEM(x, p):
     rho_L = steamTable.rhoL_p(p)
     rho_G = steamTable.rhoV_p(p)
-    return 1/(1 + ((1 - x)/x) * (rho_G/rho_L)) if x != 0 else 0.0  # [-]
+    return x/(x +  (rho_G/rho_L) * (1 - x)) # [-]
 
 def rho_m(x, p):
-    return void_fraction(x, p) * rho_G_E + (1 - void_fraction(x, p)) * rho_L_E  # [kg/m³]
+    rho_L = steamTable.rhoL_p(p)
+    rho_G = steamTable.rhoV_p(p)
+    return void_fraction_HEM(x, p) * rho_G + (1 - void_fraction_HEM(x, p)) * rho_L # [kg/m³] 
 
 #=== FINAL EXAM CHALLENGE : Plot the total pressure drop through the subchanneland its individual components in function of the mass flow rate ===
 #=== for mass flow rates ranging from 0 to 2.5 kg/s.===
@@ -367,14 +368,35 @@ def rho_m(x, p):
 
 #===Before : Write enthalpy and equilibrium quality in terms of height, mass flux and heating===
 
+#===Graphs of h and xe  along z for mass flow rate = 2.5 kg/s===
+mass_flow_rate_graphs = 2.5 # [kg/s]
+n_axial_G = 100
+z_values_G = [i * L_heated / n_axial_G - (L_heated/2) for i in range(n_axial_G +1)] # [m]
+
+h_values_G = [h_m_z(z, mass_flow_rate_graphs) for z in z_values_G]
+plt.plot(h_values_G, z_values_G, label='Enthalpy along z')
+plt.xlabel('Enthalpy [kJ/kg]')
+plt.ylabel('Axial Position z [m]')
+plt.title('Enthalpy  vs Axial Position z (Mass Flow Rate = 2.5 kg/s)')
+plt.legend()
+plt.grid()
+plt.show()
+
+x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]  
+plt.plot(x_e_values_G, z_values_G, label='Equilibrium Quality along z')
+plt.xlabel(' Equilibrium Quality [-]')
+plt.ylabel('Axial Position z [m]')
+plt.title('Equilibrium Quality vs Axial Position z (Mass Flow Rate = 2.5 kg/s)')
+plt.legend()
+plt.grid()
+plt.show()
+
 n_mass_flow_rate = 10
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
+
+
 #===First graph: Liquid region (from 0 to zB)===
-rho_liquid = steamTable.rho_pt(p_in, T_in) # [kg/m³]
-mu_liquid = steamTable.my_pt(p_in, T_in) # [Pa.s]
-# print(f'Liquid density at inlet conditions: {rho_liquid} kg/m³')
-# print(f'Liquid viscosity at inlet conditions: {mu_liquid} Pa.s')
 
 dp_acc_list_liquid = []
 dp_fric_list_liquid = []
@@ -382,6 +404,9 @@ dp_grav_list_liquid = []
 dp_tot_list_liquid = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
+    h_m_mid_liquid = h_m_z(zB/2, mass_flow_rate) # [kJ/kg]
+    rho_liquid = steamTable.rho_ph(p_in, h_m_mid_liquid) # [kg/m³]
+    mu_liquid = steamTable.my_ph(p_in, h_m_mid_liquid) # [Pa.s]
     u_liquid = mass_flow_rate / (rho_liquid * A_flow)
     Re_liquid = rho_liquid * u_liquid * Hydraulic_diameter / mu_liquid
     # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Liquid Reynolds number: {Re_liquid}')
@@ -408,6 +433,8 @@ for mass_flow_rate in mass_flow_rate_list_final:
     dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
     dp_tot_list_liquid.append(dp_total_liquid)
 
+#comparer la température en à zb avec celle de l'enthalpie calculée et celle de la formule slide 16 cours 14
+
 #===Plot the liquid region pressure drop components===
 plt.plot(mass_flow_rate_list_final, dp_acc_list_liquid, label='Acceleration Pressure Drop')
 plt.plot(mass_flow_rate_list_final, dp_fric_list_liquid, label='Friction Pressure Drop')
@@ -427,7 +454,14 @@ dp_fric_list_two_phase = []
 dp_grav_list_two_phase = []
 dp_tot_list_two_phase = []
 
+#===Levy correlation to link x and xe===
+#=== rho_L use for friction should be at saturation===
+
+
+
 for mass_flow_rate in mass_flow_rate_list_final:
+    G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]
+
     #===Calculate properties at bulk boiling point===
     h_m_zB = h_m_z(zB, mass_flow_rate) # [kJ/kg]
     x_e_in_TP = (x_e_z(zB, mass_flow_rate, p_in)) # [-]
@@ -440,7 +474,7 @@ for mass_flow_rate in mass_flow_rate_list_final:
     # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Mixture density at bulk boiling point: {rho_m_TP} kg/m³')
 
     # #===Acceleration pressure drop===
-    # G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]
+    # 
     # dp_acc_TP = G_m_TP**2 * (1/rho_m_plus(rho_L_TP, rho_G_TP, 0.15) - 1/rho_m_plus(rho_L_TP, rho_G_TP, x_in_TP)) / 1e5
     # dp_acc_list_two_phase.append(dp_acc_TP)
     # #===Friction pressure drop (using McAdams correlation)===
