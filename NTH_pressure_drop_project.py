@@ -458,7 +458,7 @@ x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]
 #===First totaly HEM ===
 
 
-n_mass_flow_rate = 20
+n_mass_flow_rate = 100
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zB)===
@@ -568,3 +568,72 @@ plt.title('Pressure Drop Components in Two Phase Region vs Mass Flow Rate')
 plt.legend()
 plt.grid()
 plt.show()
+
+#===Third graph: Vapour region (from zV to L_heated/2)===
+dp_acc_list_vapour = []
+dp_fric_list_vapour = []
+dp_grav_list_vapour = []
+dp_tot_list_vapour = []
+
+for mass_flow_rate in mass_flow_rate_list_final:
+    zV_sol = zV(mass_flow_rate, p_in)
+    p_in_vapour = p_in - dp_tot_list_liquid[mass_flow_rate_list_final.index(mass_flow_rate)] - dp_tot_list_two_phase[mass_flow_rate_list_final.index(mass_flow_rate)]  # [bar]
+    # print(f'For mass flow rate {mass_flow_rate} kg/s, pressure at vapour region inlet: {p_in_vapour} bar')
+    if zV_sol == L_heated/2:
+        # No vapour region
+        dp_acc_list_vapour.append(0.0)
+        dp_fric_list_vapour.append(0.0)
+        dp_grav_list_vapour.append(0.0)
+        dp_tot_list_vapour.append(0.0)
+        continue    
+    else:
+        h_m_mid_vapour = h_m_z((zV_sol + L_heated/2)/2, mass_flow_rate) # [kJ/kg]
+        rho_vapour = steamTable.rho_ph(p_in_vapour, h_m_mid_vapour) # [kg/m³]
+        #mu_vapour = steamTable.my_ph(p_in_vapour, h_m_mid_vapour) # [Pa.s]
+        mu_vapour = PropsSI('VISCOSITY', 'P', p_in_vapour * 1e5, 'H', h_m_mid_vapour * 1e3, 'Water') # [Pa.s]
+
+        u_vapour = mass_flow_rate / (rho_vapour * A_flow)
+        Re_vapour = rho_vapour * u_vapour * Hydraulic_diameter / mu_vapour
+        # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Vapour Reynolds number: {Re_vapour}')
+        #===Acceleration pressure drop===
+        dp_acc_vapour = 0 # No acceleration in saturated vapour region (in reality there is a small acceleration due to change in density with temperature)
+        dp_acc_list_vapour.append(dp_acc_vapour)
+        #===Friction pressure drop===
+        f_vapour = friction_factor_1phase(Re_vapour, relative_wall_roughness)
+        dp_friction_vapour = f_vapour * ((L_heated/2 - zV_sol) / Hydraulic_diameter) * (rho_vapour * u_vapour**2 / 2) / 1e5
+        dp_fric_list_vapour.append(dp_friction_vapour)
+        #===Gravity pressure drop===
+        dp_gravity_vapour = rho_vapour * g * (L_heated/2 - zV_sol) / 1e5
+        dp_grav_list_vapour.append(dp_gravity_vapour)
+        #===Total pressure drop===
+        dp_total_vapour = dp_acc_vapour + dp_friction_vapour + dp_gravity_vapour
+        dp_tot_list_vapour.append(dp_total_vapour)
+#===Plot the vapour region pressure drop components===
+plt.plot(mass_flow_rate_list_final, dp_acc_list_vapour, label='Acceleration Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_fric_list_vapour, label='Friction Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_grav_list_vapour, label='Gravity Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_tot_list_vapour, label='Total Pressure Drop')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Pressure Drop [bar]')
+plt.title('Pressure Drop Components in Vapour Region vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()
+
+#===Total pressure drop graph===
+#===Sum over the three regions for each component===
+dp_acc_list_total = [dp_acc_list_liquid[i] + dp_acc_list_two_phase[i] + dp_acc_list_vapour[i] for i in range(len(mass_flow_rate_list_final))]
+dp_fric_list_total = [dp_fric_list_liquid[i] + dp_fric_list_two_phase[i] + dp_fric_list_vapour[i] for i in range(len(mass_flow_rate_list_final))]
+dp_grav_list_total = [dp_grav_list_liquid[i] + dp_grav_list_two_phase[i] + dp_grav_list_vapour[i] for i in range(len(mass_flow_rate_list_final))]
+dp_tot_list_total = [dp_tot_list_liquid[i] + dp_tot_list_two_phase[i] + dp_tot_list_vapour[i] for i in range(len(mass_flow_rate_list_final))]   
+#===Plot the total pressure drop components===
+plt.plot(mass_flow_rate_list_final, dp_acc_list_total, label='Acceleration Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_fric_list_total, label='Friction Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_grav_list_total, label='Gravity Pressure Drop')
+plt.plot(mass_flow_rate_list_final, dp_tot_list_total, label='Total Pressure Drop')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Pressure Drop [bar]')
+plt.title('Total Pressure Drop Components vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()  
