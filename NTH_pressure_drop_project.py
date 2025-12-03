@@ -458,7 +458,7 @@ x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]
 #===First totaly HEM ===
 
 
-n_mass_flow_rate = 100
+n_mass_flow_rate = 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zB)===
@@ -469,12 +469,14 @@ dp_grav_list_liquid = []
 dp_tot_list_liquid = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
-    # Initial guess at the middle of the heated length
     zB_sol = zB(mass_flow_rate)
+
+    # #Initial guess at the middle of the heated length
     # h_m_mid_liquid = h_m_z(zB_sol/2, mass_flow_rate) # [kJ/kg]
     # rho_liquid = steamTable.rho_ph(p_in, h_m_mid_liquid) # [kg/m³]
-    # #mu_liquid = steamTable.my_ph(p_in, h_m_mid_liquid) # [Pa.s]
     # mu_liquid = PropsSI('VISCOSITY', 'P', p_in * 1e5, 'H', h_m_mid_liquid * 1e3, 'Water') # [Pa.s]
+
+    #Assuming constant material properties and use the inlet pressure to calculate those for the subcooled region:
     rho_liquid = steamTable.rho_pt(p_in, T_in) # [kg/m³]
     mu_liquid = steamTable.my_pt(p_in, T_in) # [Pa.s]
 
