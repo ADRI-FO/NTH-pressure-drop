@@ -471,10 +471,12 @@ dp_tot_list_liquid = []
 for mass_flow_rate in mass_flow_rate_list_final:
     # Initial guess at the middle of the heated length
     zB_sol = zB(mass_flow_rate)
-    h_m_mid_liquid = h_m_z(zB_sol/2, mass_flow_rate) # [kJ/kg]
-    rho_liquid = steamTable.rho_ph(p_in, h_m_mid_liquid) # [kg/m³]
-    #mu_liquid = steamTable.my_ph(p_in, h_m_mid_liquid) # [Pa.s]
-    mu_liquid = PropsSI('VISCOSITY', 'P', p_in * 1e5, 'H', h_m_mid_liquid * 1e3, 'Water') # [Pa.s]
+    # h_m_mid_liquid = h_m_z(zB_sol/2, mass_flow_rate) # [kJ/kg]
+    # rho_liquid = steamTable.rho_ph(p_in, h_m_mid_liquid) # [kg/m³]
+    # #mu_liquid = steamTable.my_ph(p_in, h_m_mid_liquid) # [Pa.s]
+    # mu_liquid = PropsSI('VISCOSITY', 'P', p_in * 1e5, 'H', h_m_mid_liquid * 1e3, 'Water') # [Pa.s]
+    rho_liquid = steamTable.rho_pt(p_in, T_in) # [kg/m³]
+    mu_liquid = steamTable.my_pt(p_in, T_in) # [Pa.s]
 
     u_liquid = mass_flow_rate / (rho_liquid * A_flow)
     Re_liquid = rho_liquid * u_liquid * Hydraulic_diameter / mu_liquid
