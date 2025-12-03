@@ -340,29 +340,70 @@ zV_F = zV(mass_flow_rate_F, p_in)
 
 #===Find axial position where the flow (dynamic quality) is zero: bubble detachment (zD) (start of subcool boiling)===
 #Using Saha and Zuber correlation or Stanton for bubble detachment (low flow rates), and also do you have to conscider the local or the average heat flux? (check in the book)
-def bubble_detachment_point_eq(z, mass_flow_rate):
+def bubble_detachment_point_eq(z, mass_flow_rate, p):
+    # Clamp z pour rester dans le canal
+    z = max(min(z, L_heated/2), -L_heated/2)
 
-    G_m = mass_flow_rate_F / A_flow # [kg/m²/s]
-    Peclet = G_m * Hydraulic_diameter * steamTable.CpL_p(p_in) * 1e3 / steamTable.tcL_p(p_in) # [-] Or insted using the value at satutation, use the local one but need an iterative process
-    # print(f'Peclet number at z = {z} m: {Peclet}')
-    if Peclet < 7e4:
-        #Use Nusselt correlation
-        Nusselt_departure = 455
-        T_bulk = steamTable.tsat_p(p_in) - (heat_flux_pin(z) * Hydraulic_diameter) / (Nusselt_departure * steamTable.tcL_p(p_in))
+    # Paramètres de flux
+    G_m = mass_flow_rate / A_flow
+    cp_L = steamTable.CpL_p(p) * 1e3
+    k_L  = steamTable.tcL_p(p)
+    Dh = Hydraulic_diameter
+    q = heat_flux_pin(z)
+    Tsat = steamTable.tsat_p(p)
+
+    # Peclet
+    Pe = G_m * Dh * cp_L / k_L
+
+    # T_bulk
+    if Pe < 7e4:
+        T_bulk = Tsat - q*Dh/(455*k_L)
     else:
-        #Use Stanton correlation
-        Stanton_departure = 6.5e-3
-        T_bulk = steamTable.tsat_p(p_in) - (heat_flux_pin(z)) / (Stanton_departure * G_m * steamTable.CpL_p(p_in) * 1e3)
-        #print(f'cp at saturation: {steamTable.CpL_p(p_in)} kJ/kg.K')
-    
-    #===Find the z where the enthalpy gives a temperature equal to the bulk temperature calculated above===
-    h_bulk = steamTable.h_pt(p_in, T_bulk) # [kJ/kg]
+        T_bulk = Tsat - q/(6.5e-3*G_m*cp_L)
+
+    # Clamp T_bulk pour SteamTable
+    T_bulk = max(Tsat-50, min(T_bulk, Tsat))
+
+    # Si encore hors domaine → retourner grand résidu pour fsolve
+    if T_bulk <= 0 or T_bulk > 2*Tsat:
+        return 1e6
+
+    h_bulk = steamTable.h_pt(p, T_bulk)
     return h_m_z(z, mass_flow_rate) - h_bulk
 
-zD_solution = fsolve(bubble_detachment_point_eq, -1, args=(mass_flow_rate_F,)) # Initial guess at the middle of the heated length
-zD = zD_solution[0]
-# print(f'value of zD (from middle of heated length): {zD} m')
-# print(f'Axial position of bubble detachment point from the channel inlet (zD): {zD + (L_heated/2)} m')
+
+
+
+
+
+def zD(mass_flow_rate, p):
+    """Compute bubble detachment point robustly."""
+    # --- Enthalpy at inlet/outlet ---
+    h_in  = h_m_z(-L_heated/2, mass_flow_rate)
+    h_out = h_m_z( L_heated/2, mass_flow_rate)
+
+    # --- Reference h_bulk at center ---
+    Tsat = steamTable.tsat_p(p)
+    h_bulk_center = steamTable.h_pt(p, Tsat - heat_flux_pin(0) * Hydraulic_diameter / (455 * steamTable.tcL_p(p)))
+
+    # --- Check if detachment exists inside the channel ---
+    if h_out < h_bulk_center:
+        return L_heated/2     # no detachment
+    if h_in > h_bulk_center:
+        return -L_heated/2    # detachment occurs immediately
+
+    # --- Solve for root with safe initial guess -1 ---
+    sol = fsolve(bubble_detachment_point_eq, x0=0.0, args=(mass_flow_rate, p))
+    z_val = float(sol[0])
+
+    # --- Clamp final solution to domain ---
+    return max(min(z_val, L_heated/2), -L_heated/2)
+
+
+# zD_sol = fsolve(bubble_detachment_point_eq, -1, args=(mass_flow_rate_F, p_in))[0]
+zD_new = zD(mass_flow_rate_F, p_in)
+# print(f'value of zD (from middle of heated length): {zD_new} m')
+# print(f'Axial position of bubble detachment point from the channel inlet (zD_new): {zD_new + (L_heated/2)} m')
 
 
 
@@ -429,34 +470,7 @@ def Re(mass_flow_rate, mu, A_flow, Hydraulic_diameter):
 #=== Assume constant material properties and use the inlet pressure to calculate those for the subcooled region===
 #=== E.g. Four graphs (liquid, two phase, vapour, total) with each three components (acceleration, gravity and friction) ===
 
-#===Before : Write enthalpy and equilibrium quality in terms of height, mass flux and heating===
-
-#===Graphs of h and xe  along z for mass flow rate = 1 kg/s===
-mass_flow_rate_graphs = 0.1 # [kg/s]
-n_axial_G = 20
-z_values_G = [i * L_heated / n_axial_G - (L_heated/2) for i in range(n_axial_G +1)] # [m]
-
-h_values_G = [h_m_z(z, mass_flow_rate_graphs) for z in z_values_G]
-# plt.plot(h_values_G, z_values_G, label='Enthalpy along z')
-# plt.xlabel('Enthalpy [kJ/kg]')
-# plt.ylabel('Axial Position z [m]')
-# plt.title(f'Enthalpy  vs Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
-# plt.legend()
-# plt.grid()
-# plt.show()
-
-x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]  
-# plt.plot(x_e_values_G, z_values_G, label='Equilibrium Quality along z')
-# plt.xlabel(' Equilibrium Quality [-]')
-# plt.ylabel('Axial Position z [m]')
-# plt.title(f'Equilibrium Quality vs Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
-# plt.legend()
-# plt.grid()
-# plt.show()
-
-
 #===First totaly HEM ===
-
 
 n_mass_flow_rate = 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
@@ -641,3 +655,67 @@ plt.title('Total Pressure Drop Components vs Mass Flow Rate')
 plt.legend()
 plt.grid()
 plt.show()  
+
+
+
+#=== Plot zB and zV in terms of mass flow rate ===
+zB_list = []
+zV_list = []
+for mass_flow_rate in mass_flow_rate_list_final:
+    zB_sol = zB(mass_flow_rate)
+    zV_sol = zV(mass_flow_rate, p_in) #TO IMPROVE: pass p after pressure drop calculation
+    zB_list.append(zB_sol)
+    zV_list.append(zV_sol)
+plt.plot(mass_flow_rate_list_final, zB_list, label='Bulk Boiling Point zB')
+plt.plot(mass_flow_rate_list_final, zV_list, label='Saturated Vapour Point zV')
+# Add a horizontal dotted line at z = L_heated/2 and z = -L_heated/2
+plt.axhline(y=L_heated/2, color='r', linestyle='--', label='Channel Outlet')
+plt.axhline(y=-L_heated/2, color='g', linestyle='--', label='Channel Inlet')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Axial Position [m]')
+plt.title('Axial Positions zB and zV vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()
+
+#===plot zD in terms of mass flow rate===
+zD_list = []
+for mass_flow_rate in mass_flow_rate_list_final:
+    zD_sol = zD(mass_flow_rate, p_in) #TO IMPROVE: pass p after pressure drop calculation
+    zD_list.append(zD_sol)
+plt.plot(mass_flow_rate_list_final, zD_list, label='Bubble Detachment Point zD')
+# Add a horizontal dotted line at z = L_heated/2 and z = -L_heated/2
+plt.axhline(y=L_heated/2, color='r', linestyle='--', label='Channel Outlet')
+plt.axhline(y=-L_heated/2, color='g', linestyle='--', label='Channel Inlet')
+plt.xlabel('Mass Flow Rate [kg/s]')
+plt.ylabel('Axial Position [m]')
+plt.title('Axial Position zD vs Mass Flow Rate')
+plt.legend()
+plt.grid()
+plt.show()
+
+# Plot equilibrium and flow quality in terms of height for a mass flow of 0,1 kg/s
+#===Graphs of h and xe  along z for mass flow rate = 0.1 kg/s===
+mass_flow_rate_graphs = 0.1 # [kg/s]
+n_axial_G = 20
+z_values_G = [i * L_heated / n_axial_G - (L_heated/2) for i in range(n_axial_G +1)] # [m]
+
+h_values_G = [h_m_z(z, mass_flow_rate_graphs) for z in z_values_G]
+plt.plot(h_values_G, z_values_G, label='Enthalpy along z')
+plt.xlabel('Enthalpy [kJ/kg]')
+plt.ylabel('Axial Position z [m]')
+plt.title(f'Enthalpy  vs Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
+plt.legend()
+plt.grid()
+plt.show()
+
+x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]  
+plt.plot(x_e_values_G, z_values_G, label='Equilibrium Quality along z')
+plt.xlabel(' Equilibrium Quality [-]')
+plt.ylabel('Axial Position z [m]')
+plt.title(f'Equilibrium Quality vs Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
+plt.legend()
+plt.grid()
+plt.show()
+
+#===Have to plot the graph of the flow quality along z too after using Levy correlation===
