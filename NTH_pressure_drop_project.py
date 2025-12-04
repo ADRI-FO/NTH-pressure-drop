@@ -497,16 +497,35 @@ def choose_zD():
     messagebox.showinfo("Selection", "You have chosen zD as the separation point.")
     root_tk.destroy()
 
+def ask_constant_properties():
+    def set_choice(value):
+        nonlocal choice
+        choice = value
+        window.destroy()
+
+    choice = None
+    window = tk.Tk()
+    window.title("Property Selection")
+    window.geometry("340x150")
+
+    label = tk.Label(window, text="Constant properties along each region ?", font=("Arial", 12))
+    label.pack(pady=15)
+
+    # Buttons
+    btn_yes = tk.Button(window, text="YES", width=12, command=lambda: set_choice("YES"))
+    btn_yes.pack(side="left", padx=25, pady=10)
+
+    btn_no = tk.Button(window, text="NO", width=12, command=lambda: set_choice("NO"))
+    btn_no.pack(side="right", padx=25, pady=10)
+
+    window.mainloop()
+    return choice
+
 #=== FINAL EXAM CHALLENGE : Plot the total pressure drop through the subchanneland its individual components in function of the mass flow rate ===
 #=== for mass flow rates ranging from 0 to 2.5 kg/s.===
 #=== Use McAdams correlation for the two phase pressure drop and Coolebrook for the monophase pressure drop===
 #=== Assume constant material properties and use the inlet pressure to calculate those for the subcooled region===
 #=== E.g. Four graphs (liquid, two phase, vapour, total) with each three components (acceleration, gravity and friction) ===
-
-#===First totaly HEM ===
-
-n_mass_flow_rate = 90 # max 90
-mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #=== ask the user to choose between zB and zD ===
 
@@ -525,13 +544,21 @@ button_zD.pack(pady=5)
 
 root_tk.mainloop()
 
-# Après fermeture de la fenêtre
+# After closure of the window
 if separation_point is None:
     print("No choice made. Defaulting to zD.")
     separation_point = "zD"
 
 print("Separation point chosen:", separation_point)
 
+#=== ask the user to choose if constant properties are used along each region ===
+
+constant_properties_choice = ask_constant_properties()
+print("Constant properties selected:", constant_properties_choice)
+
+
+n_mass_flow_rate = 20 # max 90
+mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zD (Zsc))===
 
@@ -541,42 +568,98 @@ dp_grav_list_liquid = []
 dp_tot_list_liquid = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
+
+    # Separation point
     if separation_point == "zB":
-        zB_sol = zB(mass_flow_rate)
+        z_sep = zB(mass_flow_rate)
     else:
-        zD_sol = zD(mass_flow_rate, p_in)
+        z_sep = zD(mass_flow_rate, p_in)
 
-    # #Initial guess at the middle of the heated length
-    # h_m_mid_liquid = h_m_z(zD_sol/2, mass_flow_rate) # [kJ/kg]
-    # rho_liquid = steamTable.rho_ph(p_in, h_m_mid_liquid) # [kg/m³]
-    # mu_liquid = PropsSI('VISCOSITY', 'P', p_in * 1e5, 'H', h_m_mid_liquid * 1e3, 'Water') # [Pa.s]
+    L_liquid = z_sep + (L_heated/2)
 
-    #Assuming constant material properties and use the inlet pressure to calculate those for the subcooled region:
-    rho_liquid = steamTable.rho_pt(p_in, T_in) # [kg/m³]
-    mu_liquid = steamTable.my_pt(p_in, T_in) # [Pa.s]
+    # -----------------------
+    # INITIAL VALUES (inlet)
+    # -----------------------
+    rho_liquid_in = steamTable.rho_pt(p_in, T_in)      # [kg/m³]
+    mu_liquid_in  = steamTable.my_pt(p_in, T_in)       # [Pa.s]
 
-    u_liquid = mass_flow_rate / (rho_liquid * A_flow)
-    Re_liquid = rho_liquid * u_liquid * Hydraulic_diameter / mu_liquid
-    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Liquid Reynolds number: {Re_liquid}')
-    #===Acceleration pressure drop===
-    dp_acc_liquid = 0 # No acceleration in subcooled region (in reality there is a small acceleration due to change in density with temperature)
+    # initial guess for pressure at outlet of liquid region
+    p_guess = p_in
+
+    if constant_properties_choice == "NO":
+        # Non-constant properties: we will update them in the loop
+        
+        # -----------------------
+        # ITERATION LOOP
+        # -----------------------
+        for k in range(50):
+
+            # enthalpy at separation point
+            h_liquid_out = h_m_z(z_sep, mass_flow_rate)
+
+            # OUTLET PROPERTIES
+            T_liquid_out  = steamTable.t_ph(p_guess, h_liquid_out)
+            rho_liquid_out = steamTable.rho_ph(p_guess, h_liquid_out)
+            mu_liquid_out  = PropsSI('VISCOSITY', 'P', p_guess*1e5, 'H', h_liquid_out*1e3, 'Water')
+
+            # MEAN PROPERTIES
+            rho_liquid_mean = 0.5 * (rho_liquid_in + rho_liquid_out)
+            mu_liquid_mean  = 0.5 * (mu_liquid_in  + mu_liquid_out)
+
+            # VELOCITY
+            u_liquid = mass_flow_rate / (rho_liquid_mean * A_flow)
+
+            # REYNOLDS WITH MEAN PROPERTIES
+            Re_liquid = rho_liquid_mean * u_liquid * Hydraulic_diameter / mu_liquid_mean
+
+            # FRICTION FACTOR (Colebrook)
+            f_liquid = friction_factor_1phase(Re_liquid, relative_wall_roughness)
+
+            # PRESSURE DROPS
+            dp_acc_liquid = (mass_flow_rate/A_flow)**2 * (1/rho_liquid_out - 1/rho_liquid_in) / 1e5
+            dp_friction_liquid = f_liquid * (L_liquid / Hydraulic_diameter) * (rho_liquid_mean * u_liquid**2 / 2) / 1e5
+            dp_gravity_liquid = rho_liquid_mean * g * L_liquid / 1e5
+
+            dp_total_iter = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
+
+            # NEW PRESSURE AT OUTLET
+            p_new = p_in - dp_total_iter
+
+            # convergence
+            if abs(p_new - p_guess) < 1e-5:
+                break
+
+            # relaxation (stable)
+            p_guess = 0.5*p_guess + 0.5*p_new
+
+    else:
+        #Assuming constant material properties and use the inlet pressure to calculate those for the subcooled region:
+        u_liquid_in = mass_flow_rate / (rho_liquid_in * A_flow) # [m/s]
+        Re_liquid_in = Re(mass_flow_rate, mu_liquid_in, A_flow, Hydraulic_diameter)
+        # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Liquid Reynolds number: {Re_liquid}')
+        
+        #===Pressure drops===
+        dp_acc_liquid = 0
+        f_liquid = friction_factor_1phase(Re_liquid_in, relative_wall_roughness)
+        dp_friction_liquid = f_liquid * L_liquid / Hydraulic_diameter * (rho_liquid_in * u_liquid_in**2 / 2) / 1e5
+        dp_gravity_liquid = rho_liquid_in * g * L_liquid/ 1e5
+        dp_total_iter = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
+
+    # -----------------------
+    # STORE FINAL VALUES
+    # -----------------------
     dp_acc_list_liquid.append(dp_acc_liquid)
-    #===Friction pressure drop===
-    f_liquid = friction_factor_1phase(Re_liquid, relative_wall_roughness)
-    if separation_point == "zB":
-        dp_friction_liquid = f_liquid * ((zB_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
-    else:
-        dp_friction_liquid = f_liquid * ((zD_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
     dp_fric_list_liquid.append(dp_friction_liquid)
-    #===Gravity pressure drop===
-    if separation_point == "zB":
-        dp_gravity_liquid = rho_liquid * g * (zB_sol + (L_heated/2)) / 1e5
-    else:
-        dp_gravity_liquid = rho_liquid * g * (zD_sol + (L_heated/2)) / 1e5
     dp_grav_list_liquid.append(dp_gravity_liquid)
-    #===Total pressure drop===
-    dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
-    dp_tot_list_liquid.append(dp_total_liquid)
+    dp_tot_list_liquid.append(dp_total_iter)
+
+    # Optionally print final state (debug)
+    # print(f"mass={mass_flow_rate}: rho_mean={rho_liquid_mean}, mu_mean={mu_liquid_mean}, p_end={p_new}")
+
+
+    # #===Total pressure drop===
+    # dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
+    # dp_tot_list_liquid.append(dp_total_liquid)
 
 #comparer la température en zb avec celle de l'enthalpie calculée et celle de la formule slide 16 cours 14
 
@@ -674,6 +757,7 @@ plt.grid()
 plt.show()
 
 #===Third graph: Vapour region (from zV to L_heated/2)===
+#===Still have to change to change with constant properties or not===
 dp_acc_list_vapour = []
 dp_fric_list_vapour = []
 dp_grav_list_vapour = []
