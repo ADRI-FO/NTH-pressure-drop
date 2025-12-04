@@ -3,7 +3,8 @@ from pyXSteam.XSteam import XSteam
 steamTable = XSteam(XSteam.UNIT_SYSTEM_MKS) # m/kg/sec/°C/bar/W
 import matplotlib.pyplot as plt
 import math as math
-
+import tkinter as tk
+from tkinter import messagebox
 from iapws import IAPWS97
 from CoolProp.CoolProp import PropsSI
 from scipy.optimize import root
@@ -456,15 +457,45 @@ def friction_factor_1phase(Re, rel_rough):
     else:
         return colebrook_root(Re, rel_rough)
     
-def phi_2_L0_McAdams(x, p):
-    mu_L = PropsSI('VISCOSITY', 'P', p * 1e5, 'Q', 0, 'Water') # [Pa.s]
-    mu_G = PropsSI('VISCOSITY', 'P', p * 1e5, 'Q', 1, 'Water') # [Pa.s]
-    mu_ratio = 1/(1 + x * (mu_L/mu_G - 1)) # [-]
-    rho_L = steamTable.rhoL_p(p) # [kg/m³]
-    return mu_ratio**0.2 * (rho_L / rho_m(x, p))  # [-]
+def McAdams_factor_1phase(Re):
+    if Re < 2100:
+        return 64 / Re
+    elif 2100 <= Re < 3000:
+        f_laminar = 64/Re
+        f_turbulent_blach = 0.316*Re**(-0.25)
+        return f_laminar + (f_turbulent_blach-f_laminar)*((Re - 2100) / (3000 - 2100))
+    elif 3000<=Re<30000:
+        f_turbulent_blach = 0.316*Re**(-0.25)
+        return f_turbulent_blach
+    else:
+        f_turbulent_McAdams = 0.184*Re**(-0.2)
+        return f_turbulent_McAdams
+    
+def phi_2_L0_McAdams(Re, x, p):
+    mu_L = PropsSI('VISCOSITY', 'P', p * 1e5, 'Q', 0, 'Water')  # [Pa.s]
+    mu_G = PropsSI('VISCOSITY', 'P', p * 1e5, 'Q', 1, 'Water')  # [Pa.s]
+    mu_ratio = 1 / (1 + x * (mu_L / mu_G - 1))  # [-]
+    rho_L = steamTable.rhoL_p(p)  # [kg/m³]
+    if Re<=30000:
+        return mu_ratio ** 0.25 * (rho_L / rho_m(x, p))  # [-]
+    else:
+        return mu_ratio ** 0.2 * (rho_L / rho_m(x, p))  # [-]
 
 def Re(mass_flow_rate, mu, A_flow, Hydraulic_diameter):
     return mass_flow_rate * Hydraulic_diameter / (A_flow * mu)
+
+# --- Functions called Tkinter ---
+def choose_zB():
+    global separation_point
+    separation_point = "zB"
+    messagebox.showinfo("Selection", "You have chosen zB as the separation point.")
+    root_tk.destroy()
+
+def choose_zD():
+    global separation_point
+    separation_point = "zD"
+    messagebox.showinfo("Selection", "You have chosen zD as the separation point.")
+    root_tk.destroy()
 
 #=== FINAL EXAM CHALLENGE : Plot the total pressure drop through the subchanneland its individual components in function of the mass flow rate ===
 #=== for mass flow rates ranging from 0 to 2.5 kg/s.===
@@ -474,8 +505,33 @@ def Re(mass_flow_rate, mu, A_flow, Hydraulic_diameter):
 
 #===First totaly HEM ===
 
-n_mass_flow_rate = 90
+n_mass_flow_rate = 90 # max 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
+
+#=== ask the user to choose between zB and zD ===
+
+# --- Tkinter windows---
+root_tk = tk.Tk()
+root_tk.title("Choose Separation Point")
+
+label = tk.Label(root_tk, text="Choose the point to separate the liquid and two-phase region:")
+label.pack(pady=10)
+
+button_zB = tk.Button(root_tk, text="zB (Bulk Boiling Point)", command=choose_zB, width=30)
+button_zB.pack(pady=5)
+
+button_zD = tk.Button(root_tk, text="zD (Bubble Detachment)", command=choose_zD, width=30)
+button_zD.pack(pady=5)
+
+root_tk.mainloop()
+
+# Après fermeture de la fenêtre
+if separation_point is None:
+    print("No choice made. Defaulting to zD.")
+    separation_point = "zD"
+
+print("Separation point chosen:", separation_point)
+
 
 #===First graph: Liquid region (from 0 to zD (Zsc))===
 
@@ -485,8 +541,10 @@ dp_grav_list_liquid = []
 dp_tot_list_liquid = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
-    #zB_sol = zB(mass_flow_rate)
-    zD_sol = zD(mass_flow_rate, p_in)
+    if separation_point == "zB":
+        zB_sol = zB(mass_flow_rate)
+    else:
+        zD_sol = zD(mass_flow_rate, p_in)
 
     # #Initial guess at the middle of the heated length
     # h_m_mid_liquid = h_m_z(zD_sol/2, mass_flow_rate) # [kJ/kg]
@@ -505,10 +563,16 @@ for mass_flow_rate in mass_flow_rate_list_final:
     dp_acc_list_liquid.append(dp_acc_liquid)
     #===Friction pressure drop===
     f_liquid = friction_factor_1phase(Re_liquid, relative_wall_roughness)
-    dp_friction_liquid = f_liquid * ((zD_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
+    if separation_point == "zB":
+        dp_friction_liquid = f_liquid * ((zB_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
+    else:
+        dp_friction_liquid = f_liquid * ((zD_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
     dp_fric_list_liquid.append(dp_friction_liquid)
     #===Gravity pressure drop===
-    dp_gravity_liquid = rho_liquid * g * (zD_sol + (L_heated/2)) / 1e5
+    if separation_point == "zB":
+        dp_gravity_liquid = rho_liquid * g * (zB_sol + (L_heated/2)) / 1e5
+    else:
+        dp_gravity_liquid = rho_liquid * g * (zD_sol + (L_heated/2)) / 1e5
     dp_grav_list_liquid.append(dp_gravity_liquid)
     #===Total pressure drop===
     dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
@@ -540,48 +604,62 @@ dp_tot_list_two_phase = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
     p_in_TP = p_in - dp_tot_list_liquid[mass_flow_rate_list_final.index(mass_flow_rate)]  # [bar]
-    p_out_TP = p_in_TP
-    zD_sol = zD(mass_flow_rate, p_in_TP)
-    xe_zD = x_e_z(zD_sol, mass_flow_rate, p_in_TP)
-    #zB_sol = zB(mass_flow_rate)
-    zV_sol = zV(mass_flow_rate, p_in_TP)
-      # Initial guess, can be improved with iteration
     # print(f'For mass flow rate {mass_flow_rate} kg/s, pressure at two phase region inlet: {p_in_TP} bar')
-    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
-    if zD_sol == L_heated/2:
-        # No two phase region
-        dp_acc_list_two_phase.append(0.0)
-        dp_fric_list_two_phase.append(0.0)
-        dp_grav_list_two_phase.append(0.0)
-        dp_tot_list_two_phase.append(0.0)
-        continue
-
+    p_out_TP = p_in_TP # Initial guess, can be improved with iteration
+    if separation_point == "zB":
+        zB_sol = zB(mass_flow_rate)
+        if zB_sol == L_heated/2:
+            # No two phase region
+            dp_acc_list_two_phase.append(0.0)
+            dp_fric_list_two_phase.append(0.0)
+            dp_grav_list_two_phase.append(0.0)
+            dp_tot_list_two_phase.append(0.0)
+            continue
     else:
-    
-        G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]    
+        zD_sol = zD(mass_flow_rate, p_in_TP)
+        if zD_sol == L_heated/2:
+            # No two phase region
+            dp_acc_list_two_phase.append(0.0)
+            dp_fric_list_two_phase.append(0.0)
+            dp_grav_list_two_phase.append(0.0)
+            dp_tot_list_two_phase.append(0.0)
+            continue
+        xe_zD = x_e_z(zD_sol, mass_flow_rate, p_in_TP)
+    zV_sol = zV(mass_flow_rate, p_in_TP)
+    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
+    G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]  
+    if separation_point == "zB":
+        x_in_TP = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
+        x_out_TP = x_e_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
+    else:
         x_in_TP = x_flow_z(zD_sol, mass_flow_rate, p_in_TP) # [-]
         x_out_TP = x_flow_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
 
-        # #===Acceleration pressure drop===
-        dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP, p_out_TP) - 1/rho_m(x_in_TP, p_in_TP)) / 1e5  # [bar]
-        dp_acc_list_two_phase.append(dp_acc_TP)
+    # #===Acceleration pressure drop===
+    dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP, p_out_TP) - 1/rho_m(x_in_TP, p_in_TP)) / 1e5  # [bar]
+    dp_acc_list_two_phase.append(dp_acc_TP) 
 
-        # HAVE TO FIND A BETTER WAY TO COMPUTE ZD OTHERWHISE IT GETS STUCK IN A LOOP AND GIVES WRONG RESULTS
-
-        #===Gravity pressure drop===
+    #===Gravity pressure drop===
+    if separation_point == "zB":
+        dp_gravity_TP = quad(lambda z: rho_m(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zB_sol, zV_sol)[0] / 1e5 # [bar]
+    else:
         dp_gravity_TP = quad(lambda z: rho_m(x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zD_sol, zV_sol)[0] / 1e5 # [bar]
-        dp_grav_list_two_phase.append(dp_gravity_TP)
-        
-        # #===Friction pressure drop (using McAdams correlation)===
-        mu_LO = PropsSI('VISCOSITY', 'P', p_in_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
-        Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
-        friction_factor_L0 = friction_factor_1phase(Re_LO, relative_wall_roughness)  # Using the liquid only Reynolds number at the inlet of the two phase region
-        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
-        dp_fric_list_two_phase.append(dp_friction_TP)
-        
-        #===Total pressure drop===
-        dp_total_TP = dp_acc_TP #+ dp_gravity_TP + dp_friction_TP
-        dp_tot_list_two_phase.append(dp_total_TP)
+    dp_grav_list_two_phase.append(dp_gravity_TP)
+    
+    # #===Friction pressure drop (using McAdams correlation)===
+    mu_LO = PropsSI('VISCOSITY', 'P', p_in_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
+    Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
+    friction_factor_L0 = McAdams_factor_1phase(Re_LO)  # Using the liquid only Reynolds number at the inlet of the two phase region
+    #Have to change to correct Mcadams one phase and not colebrook 
+    if separation_point == "zB":
+        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+    else:
+        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
+    dp_fric_list_two_phase.append(dp_friction_TP)
+    
+    #===Total pressure drop===
+    dp_total_TP = dp_acc_TP + dp_gravity_TP + dp_friction_TP
+    dp_tot_list_two_phase.append(dp_total_TP)
 
 #===Plot the two phase region pressure drop components===   
 plt.plot(mass_flow_rate_list_final, dp_acc_list_two_phase, label='Acceleration Pressure Drop')
