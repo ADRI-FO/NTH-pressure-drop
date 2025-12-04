@@ -281,7 +281,6 @@ def x_e_z(z, mass_flow_rate, p):
     x_e = (h_m_z(z, mass_flow_rate) - h_l_sat) / (h_g_sat - h_l_sat) # [-]
     return x_e
 
-
 #===Find axial position of bulk boiling point (zB)===
 def bulk_boiling_point_eq(z, mass_flow_rate):
     #===Check if the temperature at position z is equal to the saturation temperature===
@@ -372,10 +371,6 @@ def bubble_detachment_point_eq(z, mass_flow_rate, p):
     return h_m_z(z, mass_flow_rate) - h_bulk
 
 
-
-
-
-
 def zD(mass_flow_rate, p):
     """Compute bubble detachment point robustly."""
     # --- Enthalpy at inlet/outlet ---
@@ -405,7 +400,14 @@ zD_new = zD(mass_flow_rate_F, p_in)
 # print(f'value of zD (from middle of heated length): {zD_new} m')
 # print(f'Axial position of bubble detachment point from the channel inlet (zD_new): {zD_new + (L_heated/2)} m')
 
-
+def x_flow_z(z, mass_flow_rate, p):
+    zD_x = zD(mass_flow_rate, p)
+    xe_zD = x_e_z(zD_x, mass_flow_rate, p)
+    epsilon = xe_zD * math.exp((x_e_z(z, mass_flow_rate, p)/xe_zD) - 1)
+    if abs(epsilon) < 1e-4:
+        return x_e_z(z, mass_flow_rate, p)
+    else:
+        return x_e_z(z, mass_flow_rate, p) - epsilon
 
 # #===Ze is when x and xe are equal===
 # def equilibrium_point_eq(z):
@@ -475,7 +477,7 @@ def Re(mass_flow_rate, mu, A_flow, Hydraulic_diameter):
 n_mass_flow_rate = 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
-#===First graph: Liquid region (from 0 to zB)===
+#===First graph: Liquid region (from 0 to zD (Zsc))===
 
 dp_acc_list_liquid = []
 dp_fric_list_liquid = []
@@ -483,10 +485,11 @@ dp_grav_list_liquid = []
 dp_tot_list_liquid = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
-    zB_sol = zB(mass_flow_rate)
+    #zB_sol = zB(mass_flow_rate)
+    zD_sol = zD(mass_flow_rate, p_in)
 
     # #Initial guess at the middle of the heated length
-    # h_m_mid_liquid = h_m_z(zB_sol/2, mass_flow_rate) # [kJ/kg]
+    # h_m_mid_liquid = h_m_z(zD_sol/2, mass_flow_rate) # [kJ/kg]
     # rho_liquid = steamTable.rho_ph(p_in, h_m_mid_liquid) # [kg/m³]
     # mu_liquid = PropsSI('VISCOSITY', 'P', p_in * 1e5, 'H', h_m_mid_liquid * 1e3, 'Water') # [Pa.s]
 
@@ -502,10 +505,10 @@ for mass_flow_rate in mass_flow_rate_list_final:
     dp_acc_list_liquid.append(dp_acc_liquid)
     #===Friction pressure drop===
     f_liquid = friction_factor_1phase(Re_liquid, relative_wall_roughness)
-    dp_friction_liquid = f_liquid * ((zB_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
+    dp_friction_liquid = f_liquid * ((zD_sol + (L_heated/2)) / Hydraulic_diameter) * (rho_liquid * u_liquid**2 / 2) / 1e5
     dp_fric_list_liquid.append(dp_friction_liquid)
     #===Gravity pressure drop===
-    dp_gravity_liquid = rho_liquid * g * (zB_sol + (L_heated/2)) / 1e5
+    dp_gravity_liquid = rho_liquid * g * (zD_sol + (L_heated/2)) / 1e5
     dp_grav_list_liquid.append(dp_gravity_liquid)
     #===Total pressure drop===
     dp_total_liquid = dp_acc_liquid + dp_friction_liquid + dp_gravity_liquid
@@ -536,13 +539,16 @@ dp_tot_list_two_phase = []
 #=== rho_L use for friction should be at saturation===
 
 for mass_flow_rate in mass_flow_rate_list_final:
-    zB_sol = zB(mass_flow_rate)
-    zV_sol = zV(mass_flow_rate, p_in)
     p_in_TP = p_in - dp_tot_list_liquid[mass_flow_rate_list_final.index(mass_flow_rate)]  # [bar]
-    p_out_TP = p_in_TP  # Initial guess, can be improved with iteration
+    p_out_TP = p_in_TP
+    zD_sol = zD(mass_flow_rate, p_in_TP)
+    xe_zD = x_e_z(zD_sol, mass_flow_rate, p_in_TP)
+    #zB_sol = zB(mass_flow_rate)
+    zV_sol = zV(mass_flow_rate, p_in_TP)
+      # Initial guess, can be improved with iteration
     # print(f'For mass flow rate {mass_flow_rate} kg/s, pressure at two phase region inlet: {p_in_TP} bar')
     # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
-    if zB_sol == L_heated/2:
+    if zD_sol == L_heated/2:
         # No two phase region
         dp_acc_list_two_phase.append(0.0)
         dp_fric_list_two_phase.append(0.0)
@@ -553,26 +559,28 @@ for mass_flow_rate in mass_flow_rate_list_final:
     else:
     
         G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]    
-        x_in_TP_HEM = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
-        x_out_TP_HEM = x_e_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
+        x_in_TP = x_flow_z(zD_sol, mass_flow_rate, p_in_TP) # [-]
+        x_out_TP = x_flow_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
 
         # #===Acceleration pressure drop===
-        dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP_HEM, p_out_TP) - 1/rho_m(x_in_TP_HEM, p_in_TP)) / 1e5  # [bar]
+        dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP, p_out_TP) - 1/rho_m(x_in_TP, p_in_TP)) / 1e5  # [bar]
         dp_acc_list_two_phase.append(dp_acc_TP)
 
+        # HAVE TO FIND A BETTER WAY TO COMPUTE ZD OTHERWHISE IT GETS STUCK IN A LOOP AND GIVES WRONG RESULTS
+
         #===Gravity pressure drop===
-        dp_gravity_TP = quad(lambda z: rho_m(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zB_sol, zV_sol)[0] / 1e5 # [bar]
+        dp_gravity_TP = quad(lambda z: rho_m(x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zD_sol, zV_sol)[0] / 1e5 # [bar]
         dp_grav_list_two_phase.append(dp_gravity_TP)
         
         # #===Friction pressure drop (using McAdams correlation)===
         mu_LO = PropsSI('VISCOSITY', 'P', p_in_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
         Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
         friction_factor_L0 = friction_factor_1phase(Re_LO, relative_wall_roughness)  # Using the liquid only Reynolds number at the inlet of the two phase region
-        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
         dp_fric_list_two_phase.append(dp_friction_TP)
         
         #===Total pressure drop===
-        dp_total_TP = dp_acc_TP + dp_gravity_TP + dp_friction_TP
+        dp_total_TP = dp_acc_TP #+ dp_gravity_TP + dp_friction_TP
         dp_tot_list_two_phase.append(dp_total_TP)
 
 #===Plot the two phase region pressure drop components===   
@@ -696,10 +704,10 @@ plt.show()
 
 # Plot equilibrium and flow quality in terms of height for a mass flow of 0,1 kg/s
 #===Graphs of h and xe  along z for mass flow rate = 0.1 kg/s===
+
 mass_flow_rate_graphs = 0.1 # [kg/s]
 n_axial_G = 20
 z_values_G = [i * L_heated / n_axial_G - (L_heated/2) for i in range(n_axial_G +1)] # [m]
-
 h_values_G = [h_m_z(z, mass_flow_rate_graphs) for z in z_values_G]
 plt.plot(h_values_G, z_values_G, label='Enthalpy along z')
 plt.xlabel('Enthalpy [kJ/kg]')
@@ -709,9 +717,13 @@ plt.legend()
 plt.grid()
 plt.show()
 
+#=== In the same graph, plot also the flow quality along z between ZD and zV===
+z_values_G_flow = [z for z in z_values_G if z >= zD(mass_flow_rate_graphs, p_in) and z <= zV(mass_flow_rate_graphs, p_in)]
 x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]  
+x_values_G = [x_flow_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G_flow]
 plt.plot(x_e_values_G, z_values_G, label='Equilibrium Quality along z')
-plt.xlabel(' Equilibrium Quality [-]')
+plt.plot(x_values_G, z_values_G_flow, label='Flow Quality along z')
+plt.xlabel(' Equilibrium Quality and Flow Quality [-]')
 plt.ylabel('Axial Position z [m]')
 plt.title(f'Equilibrium Quality vs Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
 plt.legend()
