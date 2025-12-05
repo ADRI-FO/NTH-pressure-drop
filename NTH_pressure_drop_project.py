@@ -173,7 +173,9 @@ for mass_flow_rate in mass_flow_rate_list:
 # plt.grid()
 # plt.show()
 
-def rho_m_plus(rho_L, rho_G, x):
+def rho_m(x, p):
+    rho_L = steamTable.rhoL_p(p)
+    rho_G = steamTable.rhoV_p(p)
     return 1 / (x / rho_G + (1 - x) / rho_L)
 
 
@@ -215,7 +217,7 @@ for mass_flow_rate in mass_flow_rate_list:
     dp_fric_E, _ = quad(dp_fric_E_dz, 0, L_heated)
     dp_fric_list_E.append(dp_fric_E / 1e5) # [bar] 
 
-    dp_acc_E = G_m_E**2 * (1/rho_m_plus(rho_L_E, rho_G_E, x_out_E) - 1/rho_m_plus(rho_L_E, rho_G_E, x_in_E)) # [Pa]
+    dp_acc_E = G_m_E**2 * (1/rho_m(x_out_E, p_in) - 1/rho_m(x_in_E, p_in)) # [Pa]
     dp_acc_list_E.append(dp_acc_E / 1e5) # [bar]
 
     # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, dp_grav: {dp_grav_E/1e5} bar, dp_acc: {dp_acc_E/1e5} bar, dp_fric: {dp_fric_E/1e5} bar}')
@@ -440,10 +442,12 @@ def void_fraction_HEM(x, p):
 #     rho_G = steamTable.rhoV_p(p)
 #     return void_fraction_HEM(x, p) * rho_G + (1 - void_fraction_HEM(x, p)) * rho_L # [kg/m³] 
 
-def rho_m(x, p):
+
+def rho_m_plus(x,p): #velocotiy of each phase assumed to be radially uniform
+    alpha = void_fraction_HEM(x, p)
     rho_L = steamTable.rhoL_p(p)
     rho_G = steamTable.rhoV_p(p)
-    return 1 / (x / rho_G + (1 - x) / rho_L)
+    return 1 / (x**2/ (alpha * rho_G) + (1 - x)**2 / ((1 - alpha) * (rho_L)))
 
 
 def friction_factor_1phase(Re, rel_rough):
@@ -628,9 +632,8 @@ for mass_flow_rate in mass_flow_rate_list_final:
             # convergence
             if abs(p_new - p_guess) < 1e-5:
                 break
-
-            # relaxation (stable)
-            p_guess = 0.5*p_guess + 0.5*p_new
+            
+            p_guess = p_new #0.5*p_guess + 0.5*p_new # relaxation (stable)
 
     else:
         #Assuming constant material properties and use the inlet pressure to calculate those for the subcooled region:
@@ -682,9 +685,6 @@ dp_fric_list_two_phase = []
 dp_grav_list_two_phase = []
 dp_tot_list_two_phase = []
 
-#===Levy correlation to link x and xe===
-#=== rho_L use for friction should be at saturation===
-
 for mass_flow_rate in mass_flow_rate_list_final:
     p_in_TP = p_in - dp_tot_list_liquid[mass_flow_rate_list_final.index(mass_flow_rate)]  # [bar]
     # print(f'For mass flow rate {mass_flow_rate} kg/s, pressure at two phase region inlet: {p_in_TP} bar')
@@ -715,6 +715,7 @@ for mass_flow_rate in mass_flow_rate_list_final:
         x_in_TP = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
         x_out_TP = x_e_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
     else:
+        #===Levy correlation to find x===
         x_in_TP = x_flow_z(zD_sol, mass_flow_rate, p_in_TP) # [-]
         x_out_TP = x_flow_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
 
@@ -789,7 +790,7 @@ for mass_flow_rate in mass_flow_rate_list_final:
             p_guess = p_in_vapour - 0.0
 
             # iteration to get rho_out -> rho_mean -> dp -> p_out
-            for it in range(30):
+            for it in range(50):
                 # enthalpy at region outlet (fixed by heating)
                 h_vap_out = h_m_z(L_heated/2, mass_flow_rate)   # [kJ/kg]
                 # compute outlet properties at current p_guess
@@ -824,11 +825,11 @@ for mass_flow_rate in mass_flow_rate_list_final:
                 p_new = p_in_vapour - dp_total_iter
 
                 # convergence test on outlet pressure
-                if abs(p_new - p_guess) < 1e-4:
+                if abs(p_new - p_guess) < 1e-5:
                     p_guess = p_new
                     break
-                # relaxation to stabilize
-                p_guess = 0.5 * p_guess + 0.5 * p_new
+                
+                p_guess = p_new #0.5 * p_guess + 0.5 * p_new # relaxation to stabilize
 
             dp_acc_vapour = dp_acc_vapour
             dp_friction_vapour = dp_friction_vapour
@@ -934,11 +935,11 @@ plt.show()
 z_values_G_flow = [z for z in z_values_G if z >= zD(mass_flow_rate_graphs, p_in) and z <= zV(mass_flow_rate_graphs, p_in)]
 x_e_values_G = [x_e_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G]  
 x_values_G = [x_flow_z(z, mass_flow_rate_graphs, p_in) for z in z_values_G_flow]
-plt.plot(x_e_values_G, z_values_G, label='Equilibrium Quality along z')
-plt.plot(x_values_G, z_values_G_flow, label='Flow Quality along z')
+plt.plot(x_e_values_G, z_values_G, label='Equilibrium Quality')
+plt.plot(x_values_G, z_values_G_flow, label='Flow Quality')
 plt.xlabel(' Equilibrium Quality and Flow Quality [-]')
 plt.ylabel('Axial Position z [m]')
-plt.title(f'Equilibrium Quality vs Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
+plt.title(f'Equilibrium Quality and Flow Quality along Axial Position z (Mass Flow Rate = {mass_flow_rate_graphs} kg/s)')
 plt.legend()
 plt.grid()
 plt.show()
