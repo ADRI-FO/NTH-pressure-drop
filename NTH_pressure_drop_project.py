@@ -287,18 +287,17 @@ def x_e_z(z, mass_flow_rate, p):
 #===Find axial position of bulk boiling point (zB)===
 def bulk_boiling_point_eq(z, mass_flow_rate):
     #===Check if the temperature at position z is equal to the saturation temperature===
-    h_l_sat = steamTable.hL_p(p_in) # [kJ/kg]
+    h_l_sat = steamTable.hL_p(p_in) # [kJ/kg] #This is not perfect, normally should be at the pressure at z but need an iterative process
     return h_m_z(z, mass_flow_rate) - h_l_sat
 
 def zB(mass_flow_rate):
-    h_sat = steamTable.hL_p(p_in)
+    h_l_sat_top = steamTable.hL_p(p_in) #This is not perfect, normally should be at the pressure at L_heated/2 but need an iterative process
 
-    # enthalpy at inlet/outlet
-    h_at_inlet = h_m_z(-L_heated/2, mass_flow_rate)
+    # enthalpy at outlet
     h_at_outlet = h_m_z(L_heated/2, mass_flow_rate)
 
     # Check if boiling is reached
-    if h_at_outlet < h_sat:
+    if h_at_outlet < h_l_sat_top:
         # No boiling in whole channel
         return L_heated/2
     
@@ -707,7 +706,7 @@ for mass_flow_rate in mass_flow_rate_list_final:
             dp_grav_list_two_phase.append(0.0)
             dp_tot_list_two_phase.append(0.0)
             continue
-        xe_zD = x_e_z(zD_sol, mass_flow_rate, p_in_TP)
+        
     zV_sol = zV(mass_flow_rate, p_in_TP)
     # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
     G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]  
