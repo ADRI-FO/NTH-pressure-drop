@@ -595,7 +595,7 @@ root_correlation.mainloop()
 # Print the result (optional)
 print("Correlation chosen:", heat_transfer_correlation_choice)
 
-n_mass_flow_rate = 10 # max 90
+n_mass_flow_rate = 90 # max 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zD (Zsc))===
@@ -720,10 +720,12 @@ dp_fric_list_two_phase = []
 dp_grav_list_two_phase = []
 dp_tot_list_two_phase = []
 
-for mass_flow_rate in mass_flow_rate_list_final:
-    p_in_TP = p_in - dp_tot_list_liquid[mass_flow_rate_list_final.index(mass_flow_rate)]  # [bar]
+for idx, mass_flow_rate in enumerate(mass_flow_rate_list_final):
+    # inlet pressure to two-phase region (bar)
+    p_in_TP = p_in - dp_tot_list_liquid[idx]
     # print(f'For mass flow rate {mass_flow_rate} kg/s, pressure at two phase region inlet: {p_in_TP} bar')
-    p_out_TP = p_in_TP # Initial guess, can be improved with iteration
+    G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]  
+
     if separation_point == "zB":
         zB_sol = zB(mass_flow_rate)
         if zB_sol == L_heated/2:
@@ -742,44 +744,95 @@ for mass_flow_rate in mass_flow_rate_list_final:
             dp_grav_list_two_phase.append(0.0)
             dp_tot_list_two_phase.append(0.0)
             continue
+    if constant_properties_choice == "YES":    
+        p_out_TP = p_in_TP # Initial guess, can be improved with iteration
+        zV_sol = zV(mass_flow_rate, p_in_TP)
+        # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
+        if separation_point == "zB":
+            x_in_TP = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
+            x_out_TP = x_e_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
+        else:
+            #===Levy correlation to find x===
+            x_in_TP = x_flow_z(zD_sol, mass_flow_rate, p_in_TP) # [-]
+            x_out_TP = x_flow_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
 
-    zV_sol = zV(mass_flow_rate, p_in_TP)
-    # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, zB: {zB_sol + (L_heated/2)} m, zV: {zV_sol + (L_heated/2)} m}')
-    G_m_TP = mass_flow_rate / A_flow # [kg/m²/s]  
-    if separation_point == "zB":
-        x_in_TP = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
-        x_out_TP = x_e_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
+        # #===Acceleration pressure drop===
+        dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP, p_out_TP) - 1/rho_m(x_in_TP, p_in_TP)) / 1e5  # [bar]
+
+        #===Gravity pressure drop===
+        if separation_point == "zB":
+            dp_gravity_TP = quad(lambda z: rho_m(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zB_sol, zV_sol)[0] / 1e5 # [bar]
+        else:
+            dp_gravity_TP = quad(lambda z: rho_m(x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zD_sol, zV_sol)[0] / 1e5 # [bar]
+        
+        # #===Friction pressure drop (using McAdams correlation)===
+        mu_LO = PropsSI('VISCOSITY', 'P', p_in_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
+        Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
+        friction_factor_L0 = McAdams_factor_1phase(Re_LO)  # Using the liquid only Reynolds number at the inlet of the two phase region
+        #Have to change to correct Mcadams one phase and not colebrook 
+        if separation_point == "zB":
+            if heat_transfer_correlation_choice == "McAdams":
+                dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+            else:
+                dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_Jones(G_m_TP, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar] with Jones
+        else:
+            if heat_transfer_correlation_choice == "McAdams":
+                dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
+            else:
+                dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_Jones(G_m_TP, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar] with Jones
+
     else:
-        #===Levy correlation to find x===
-        x_in_TP = x_flow_z(zD_sol, mass_flow_rate, p_in_TP) # [-]
-        x_out_TP = x_flow_z(zV_sol, mass_flow_rate, p_out_TP) # [-]
+        #===Iterative process to find outlet pressure with non-constant properties===
+        p_guess = p_in_TP - 0.0  # initial guess for outlet pressure (bar)
 
-    # #===Acceleration pressure drop===
-    dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP, p_out_TP) - 1/rho_m(x_in_TP, p_in_TP)) / 1e5  # [bar]
-    dp_acc_list_two_phase.append(dp_acc_TP) 
+        for it in range(50):
+            zV_sol = zV(mass_flow_rate, p_guess)
+            if separation_point == "zB":
+                x_in_TP = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
+                x_out_TP = x_e_z(zV_sol, mass_flow_rate, p_guess) # [-]
+            else:
+                x_in_TP = x_flow_z(zD_sol, mass_flow_rate, p_in_TP) # [-]
+                x_out_TP = x_flow_z(zV_sol, mass_flow_rate, p_guess) # [-]
 
-    #===Gravity pressure drop===
-    if separation_point == "zB":
-        dp_gravity_TP = quad(lambda z: rho_m(x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zB_sol, zV_sol)[0] / 1e5 # [bar]
-    else:
-        dp_gravity_TP = quad(lambda z: rho_m(x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP) * g, zD_sol, zV_sol)[0] / 1e5 # [bar]
+            #===Acceleration pressure drop===
+            dp_acc_TP = G_m_TP**2 * (1/rho_m(x_out_TP, p_guess) - 1/rho_m(x_in_TP, p_in_TP)) / 1e5  # [bar]
+
+            p_mid_TP = (p_in_TP + p_guess) / 2  # Midpoint pressure for gravity and friction calculations
+            #===Gravity pressure drop===
+            if separation_point == "zB":
+                dp_gravity_TP = quad(lambda z: rho_m(x_e_z(z, mass_flow_rate, p_mid_TP), p_mid_TP) * g, zB_sol, zV_sol)[0] / 1e5 # [bar]
+            else:
+                dp_gravity_TP = quad(lambda z: rho_m(x_flow_z(z, mass_flow_rate, p_mid_TP), p_mid_TP) * g, zD_sol, zV_sol)[0] / 1e5 # [bar]
+
+            #===Friction pressure drop (using McAdams correlation)===
+            mu_LO = PropsSI('VISCOSITY', 'P', p_mid_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
+            Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
+            friction_factor_L0 = McAdams_factor_1phase(Re_LO)  # Using the liquid only Reynolds number at the inlet of the two phase region
+
+            if separation_point == "zB":
+                if heat_transfer_correlation_choice == "McAdams":
+                    dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_mid_TP))) * phi_2_L0_McAdams(Re_LO, x_e_z(z, mass_flow_rate, p_mid_TP), p_mid_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+                else:
+                    dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_mid_TP))) * phi_2_L0_Jones(G_m_TP, x_e_z(z, mass_flow_rate, p_mid_TP), p_mid_TP), zB_sol, zV_sol)[0] / 1e5 # [bar] with Jones
+            else:   
+                if heat_transfer_correlation_choice == "McAdams":
+                    dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_mid_TP))) * phi_2_L0_McAdams(Re_LO, x_flow_z(z, mass_flow_rate, p_mid_TP), p_mid_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
+                else:
+                    dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_mid_TP))) * phi_2_L0_Jones(G_m_TP, x_flow_z(z, mass_flow_rate, p_mid_TP), p_mid_TP), zD_sol, zV_sol)[0] / 1e5 # [bar] with Jones
+
+            #===Total pressure drop===
+            dp_total_TP = dp_acc_TP + dp_gravity_TP + dp_friction_TP   
+            #===New outlet pressure===
+            p_new = p_in_TP - dp_total_TP
+            #===Convergence check===
+            if abs(p_new - p_guess) < 1e-4:
+                break
+            p_guess = p_new #0.5*p_guess + 0.5*p_new # relaxation (stable)
+
+    #===Store final values===
+
+    dp_acc_list_two_phase.append(dp_acc_TP)
     dp_grav_list_two_phase.append(dp_gravity_TP)
-    
-    # #===Friction pressure drop (using McAdams correlation)===
-    mu_LO = PropsSI('VISCOSITY', 'P', p_in_TP * 1e5, 'Q', 0, 'Water') # [Pa.s]
-    Re_LO = Re(mass_flow_rate, mu_LO, A_flow, Hydraulic_diameter)
-    friction_factor_L0 = McAdams_factor_1phase(Re_LO)  # Using the liquid only Reynolds number at the inlet of the two phase region
-    #Have to change to correct Mcadams one phase and not colebrook 
-    if separation_point == "zB":
-        if heat_transfer_correlation_choice == "McAdams":
-            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
-        else:
-            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_Jones(G_m_TP, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar] with Jones
-    else:
-        if heat_transfer_correlation_choice == "McAdams":
-            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
-        else:
-            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_Jones(G_m_TP, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar] with Jones
     dp_fric_list_two_phase.append(dp_friction_TP)
     
     #===Total pressure drop===
