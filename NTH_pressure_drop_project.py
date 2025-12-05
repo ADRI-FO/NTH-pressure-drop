@@ -345,7 +345,7 @@ def bubble_detachment_point_eq(z, mass_flow_rate, p):
     z = max(min(z, L_heated/2), -L_heated/2)
 
     # Paramètres de flux
-    G_m = mass_flow_rate / A_flow
+    G_m = mass_flow_rate / A_flow # [kg/m²/s]
     cp_L = steamTable.CpL_p(p) * 1e3
     k_L  = steamTable.tcL_p(p)
     Dh = Hydraulic_diameter
@@ -460,6 +460,20 @@ def phi_2_L0_McAdams(Re, x, p):
     else:
         return mu_ratio ** 0.2 * (rho_L / rho_m(x, p))  # [-]
 
+def omega_Jones(G_m, p):
+    Gm_omega = G_m * 737.5621 #[lb/hr/ft²]
+    p_omega = p * 14.5038 #[psi]
+    if Gm_omega/1e6 <= 0.7:
+        return 1.36 + 5e-4 * p_omega + 0.1 * Gm_omega/1e6 - 7.14e-4 * p_omega * (Gm_omega/1e6)
+    else:
+        return 1.26 + 4e-4 * p_omega + 0.119 * 1e6/Gm_omega + 2.8e-4 * p_omega * (1e6/Gm_omega)
+    
+def phi_2_L0_Jones(G_m, x, p):
+    rho_L = steamTable.rhoL_p(p)  # [kg/m³]
+    rho_V = steamTable.rhoV_p(p)  # [kg/m³]
+    omega = omega_Jones(G_m, p)
+    return omega * (1.2 * ((rho_L / rho_V) - 1) * x**0.824) + 1 # [-]
+
 def Re(mass_flow_rate, mu, A_flow, Hydraulic_diameter):
     return mass_flow_rate * Hydraulic_diameter / (A_flow * mu)
 
@@ -535,6 +549,38 @@ print("Separation point chosen:", separation_point)
 constant_properties_choice = ask_constant_properties()
 print("Constant properties selected:", constant_properties_choice)
 
+
+def choose_mc_adams():
+    global heat_transfer_correlation_choice
+    heat_transfer_correlation_choice = "McAdams"
+    root_correlation.destroy()
+
+def choose_jones():
+    global heat_transfer_correlation_choice
+    heat_transfer_correlation_choice = "Jones"
+    root_correlation.destroy()
+
+#--- Tkinter window for heat transfer correlation selection ---
+# Create main window
+root_correlation = tk.Tk()
+root_correlation.title("Select Heat Transfer Correlation")
+
+# Instructions
+label = tk.Label(root_correlation, text="Choose the heat transfer correlation:")
+label.pack(pady=10)
+
+# Buttons
+btn_mc_adams = tk.Button(root_correlation, text="Mc Adams correlation", width=25, command=choose_mc_adams)
+btn_mc_adams.pack(pady=5)
+
+btn_jones = tk.Button(root_correlation, text="Jones' correlation", width=25, command=choose_jones)
+btn_jones.pack(pady=5)
+
+# Start GUI
+root_correlation.mainloop()
+
+# Print the result (optional)
+print("Correlation chosen:", heat_transfer_correlation_choice)
 
 n_mass_flow_rate = 90 # max 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
@@ -655,6 +701,7 @@ plt.show()
 
 
 #===Second graph: Two phase region (from zB to zV)===
+
 dp_acc_list_two_phase = []
 dp_fric_list_two_phase = []
 dp_grav_list_two_phase = []
@@ -711,9 +758,15 @@ for mass_flow_rate in mass_flow_rate_list_final:
     friction_factor_L0 = McAdams_factor_1phase(Re_LO)  # Using the liquid only Reynolds number at the inlet of the two phase region
     #Have to change to correct Mcadams one phase and not colebrook 
     if separation_point == "zB":
-        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+        if heat_transfer_correlation_choice == "McAdams":
+            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar]
+        else:
+            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_Jones(G_m_TP, x_e_z(z, mass_flow_rate, p_in_TP), p_in_TP), zB_sol, zV_sol)[0] / 1e5 # [bar] with Jones
     else:
-        dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
+        if heat_transfer_correlation_choice == "McAdams":
+            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_McAdams(Re_LO, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar]
+        else:
+            dp_friction_TP = quad(lambda z: (friction_factor_L0 * (G_m_TP**2) / (Hydraulic_diameter * 2 * steamTable.rhoL_p(p_in_TP))) * phi_2_L0_Jones(G_m_TP, x_flow_z(z, mass_flow_rate, p_in_TP), p_in_TP), zD_sol, zV_sol)[0] / 1e5 # [bar] with Jones
     dp_fric_list_two_phase.append(dp_friction_TP)
     
     #===Total pressure drop===
