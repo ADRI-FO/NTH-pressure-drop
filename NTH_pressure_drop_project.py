@@ -607,13 +607,7 @@ dp_tot_list_liquid = []
 
 for mass_flow_rate in mass_flow_rate_list_final:
 
-    # Separation point
-    if separation_point == "zB":
-        z_sep = zB(mass_flow_rate)
-    else:
-        z_sep = zD(mass_flow_rate, p_in)
-
-    L_liquid = z_sep + (L_heated/2)
+    
 
     # -----------------------
     # INITIAL VALUES (inlet)
@@ -631,6 +625,14 @@ for mass_flow_rate in mass_flow_rate_list_final:
         # ITERATION LOOP
         # -----------------------
         for k in range(50):
+
+            # Separation point
+            if separation_point == "zB":
+                z_sep = zB(mass_flow_rate)
+            else:
+                z_sep = zD(mass_flow_rate, p_guess)
+
+            L_liquid = z_sep + (L_heated/2)
 
             # enthalpy at separation point
             h_liquid_out = h_m_z(z_sep, mass_flow_rate)
@@ -670,6 +672,14 @@ for mass_flow_rate in mass_flow_rate_list_final:
             p_guess = p_new #0.5*p_guess + 0.5*p_new # relaxation (stable)
 
     else:
+        # Separation point
+        if separation_point == "zB":
+            z_sep = zB(mass_flow_rate)
+        else:
+            z_sep = zD(mass_flow_rate, p_in)
+
+        L_liquid = z_sep + (L_heated/2)
+
         #Assuming constant material properties and use the inlet pressure to calculate those for the subcooled region:
         u_liquid_in = mass_flow_rate / (rho_liquid_in * A_flow) # [m/s]
         Re_liquid_in = Re(mass_flow_rate, mu_liquid_in, A_flow, Hydraulic_diameter)
@@ -720,6 +730,7 @@ dp_fric_list_two_phase = []
 dp_grav_list_two_phase = []
 dp_tot_list_two_phase = []
 
+
 for idx, mass_flow_rate in enumerate(mass_flow_rate_list_final):
     # inlet pressure to two-phase region (bar)
     p_in_TP = p_in - dp_tot_list_liquid[idx]
@@ -737,6 +748,7 @@ for idx, mass_flow_rate in enumerate(mass_flow_rate_list_final):
             continue
     else:
         zD_sol = zD(mass_flow_rate, p_in_TP)
+        # print(f'For mass flow rate {mass_flow_rate} kg/s, bubble detachment point zD: {zD_sol + (L_heated/2)} m')
         if zD_sol == L_heated/2:
             # No two phase region
             dp_acc_list_two_phase.append(0.0)
@@ -786,6 +798,7 @@ for idx, mass_flow_rate in enumerate(mass_flow_rate_list_final):
         p_guess = p_in_TP - 0.0  # initial guess for outlet pressure (bar)
 
         for it in range(50):
+            zD_sol = zD(mass_flow_rate, p_guess)
             zV_sol = zV(mass_flow_rate, p_guess)
             if separation_point == "zB":
                 x_in_TP = x_e_z(zB_sol, mass_flow_rate, p_in_TP) # [-]
