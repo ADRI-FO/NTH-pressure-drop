@@ -557,7 +557,7 @@ constant_properties_choice = ask_constant_properties()
 print("Constant properties selected:", constant_properties_choice)
 
 
-n_mass_flow_rate = 20 # max 90
+n_mass_flow_rate = 90 # max 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zD (Zsc))===
@@ -775,26 +775,77 @@ for mass_flow_rate in mass_flow_rate_list_final:
         dp_tot_list_vapour.append(0.0)
         continue    
     else:
-        h_m_mid_vapour = h_m_z((zV_sol + L_heated/2)/2, mass_flow_rate) # [kJ/kg]
-        rho_vapour = steamTable.rho_ph(p_in_vapour, h_m_mid_vapour) # [kg/m³]
-        #mu_vapour = steamTable.my_ph(p_in_vapour, h_m_mid_vapour) # [Pa.s]
-        mu_vapour = PropsSI('VISCOSITY', 'P', p_in_vapour * 1e5, 'H', h_m_mid_vapour * 1e3, 'Water') # [Pa.s]
+        h_m_vapour_in = h_m_z(zV_sol , mass_flow_rate) # [kJ/kg]
+        rho_vapour_in = steamTable.rho_ph(p_in_vapour, h_m_vapour_in) # [kg/m³]
+        #mu_vapour_in = steamTable.my_ph(p_in_vapour, h_m_vapour_in) # [Pa.s]
+        mu_vapour_in = PropsSI('VISCOSITY', 'P', p_in_vapour * 1e5, 'H', h_m_vapour_in * 1e3, 'Water') # [Pa.s]
+        u_vapour_in = mass_flow_rate / (rho_vapour_in * A_flow)
+        Re_vapour_in = rho_vapour_in * u_vapour_in * Hydraulic_diameter / mu_vapour_in
+        L_vap = L_heated/2 - zV_sol
+        
 
-        u_vapour = mass_flow_rate / (rho_vapour * A_flow)
-        Re_vapour = rho_vapour * u_vapour * Hydraulic_diameter / mu_vapour
-        # print(f'Mass Flow Rate: {mass_flow_rate} kg/s, Vapour Reynolds number: {Re_vapour}')
-        #===Acceleration pressure drop===
-        dp_acc_vapour = 0 # No acceleration in saturated vapour region (in reality there is a small acceleration due to change in density with temperature)
+        if constant_properties_choice == "NO":
+            # initial guess for outlet pressure (bar)
+            p_guess = p_in_vapour - 0.0
+
+            # iteration to get rho_out -> rho_mean -> dp -> p_out
+            for it in range(30):
+                # enthalpy at region outlet (fixed by heating)
+                h_vap_out = h_m_z(L_heated/2, mass_flow_rate)   # [kJ/kg]
+                # compute outlet properties at current p_guess
+                # protect calls with try/except if steamTable can fail (optional)
+                try:
+                    rho_vapour_out = steamTable.rho_ph(p_guess, h_vap_out)
+                    mu_vapour_out  = PropsSI('VISCOSITY', 'P', p_guess * 1e5, 'H', h_vap_out * 1e3, 'Water')
+                except Exception:
+                    # fallback: clamp to inlet props to avoid crash
+                    rho_vapour_out = rho_vapour_in
+                    mu_vapour_out  = mu_vapour_in
+
+                # mean properties (user requested mean usage)
+                rho_vapour_mean = (rho_vapour_in + rho_vapour_out)/2
+                mu_vapour_mean  = (mu_vapour_in  + mu_vapour_out)/2
+
+                # velocity and Reynolds based on mean properties
+                u_vapour = mass_flow_rate / (rho_vapour_mean * A_flow)
+                Re_vapour = rho_vapour_mean * u_vapour * Hydraulic_diameter / mu_vapour_mean
+
+                # friction factor (uses your function)
+                f_vapour = friction_factor_1phase(Re_vapour, relative_wall_roughness)
+
+                # local pressure drop contributions using mean properties
+                dp_acc_vapour = (mass_flow_rate / A_flow)**2 * (1.0 / rho_vapour_out - 1.0 / rho_vapour_in) / 1e5
+                dp_friction_vapour = f_vapour * (L_vap / Hydraulic_diameter) * (rho_vapour_mean * u_vapour**2 / 2.0) / 1e5
+                dp_gravity_vapour = rho_vapour_mean * g * L_vap / 1e5
+
+                dp_total_iter = dp_acc_vapour + dp_friction_vapour + dp_gravity_vapour
+
+                # updated outlet pressure (bar)
+                p_new = p_in_vapour - dp_total_iter
+
+                # convergence test on outlet pressure
+                if abs(p_new - p_guess) < 1e-4:
+                    p_guess = p_new
+                    break
+                # relaxation to stabilize
+                p_guess = 0.5 * p_guess + 0.5 * p_new
+
+            dp_acc_vapour = dp_acc_vapour
+            dp_friction_vapour = dp_friction_vapour
+            dp_gravity_vapour = dp_gravity_vapour
+            dp_total_vapour = dp_total_iter
+
+        else:
+            #===pressure drops===
+            dp_acc_vapour = 0
+            f_vapour = friction_factor_1phase(Re_vapour_in, relative_wall_roughness)
+            dp_friction_vapour = f_vapour * (L_vap / Hydraulic_diameter) * (rho_vapour_in * u_vapour_in**2 / 2) / 1e5
+            dp_gravity_vapour = rho_vapour_in * g * L_vap / 1e5
+            dp_total_vapour = dp_acc_vapour + dp_friction_vapour + dp_gravity_vapour
+
         dp_acc_list_vapour.append(dp_acc_vapour)
-        #===Friction pressure drop===
-        f_vapour = friction_factor_1phase(Re_vapour, relative_wall_roughness)
-        dp_friction_vapour = f_vapour * ((L_heated/2 - zV_sol) / Hydraulic_diameter) * (rho_vapour * u_vapour**2 / 2) / 1e5
         dp_fric_list_vapour.append(dp_friction_vapour)
-        #===Gravity pressure drop===
-        dp_gravity_vapour = rho_vapour * g * (L_heated/2 - zV_sol) / 1e5
         dp_grav_list_vapour.append(dp_gravity_vapour)
-        #===Total pressure drop===
-        dp_total_vapour = dp_acc_vapour + dp_friction_vapour + dp_gravity_vapour
         dp_tot_list_vapour.append(dp_total_vapour)
 #===Plot the vapour region pressure drop components===
 plt.plot(mass_flow_rate_list_final, dp_acc_list_vapour, label='Acceleration Pressure Drop')
