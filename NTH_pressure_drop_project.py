@@ -10,6 +10,8 @@ from CoolProp.CoolProp import PropsSI
 from scipy.optimize import root
 from scipy.optimize import fsolve
 from scipy.integrate import quad
+from scipy.interpolate import interp1d
+from scipy.integrate import cumulative_trapezoid
 import numpy as np
 # import pandas as pd
 # import six
@@ -246,8 +248,9 @@ def rho_m(x, p):
 mass_flow_rate_F = 0.1 # [kg/s]
 heat_flux_pin_max = heat_flux_pin_avg / (2 / math.pi) # [W/m²]
 def heat_flux_pin(z):
-    z = float(np.atleast_1d(z)[0])
+    z = np.asarray(z)  # accepte scalaires et tableaux
     return heat_flux_pin_max * np.cos(np.pi * z / L_heated)
+
 
 
 # #=== Graphical representation of the axial heat flux distribution ===
@@ -267,14 +270,24 @@ def heat_flux_pin(z):
 # print(f'Calculated Average Heat Flux: {average_heat_flux} W/m²')
 
 
+# ---- Build integration grid ONCE ----
+N = 800  # resolution
+z_grid = np.linspace(-L_heated/2, L_heated/2, N)
+
+# Heat flux per unit length (W/m) on the grid
+q_grid = heat_flux_pin(z_grid) * (math.pi * D_rod)
+
+# Precompute integral Q(z)
+Q_grid = cumulative_trapezoid(q_grid, z_grid, initial=0)
+
+# Build interpolation function
+Q_interp = interp1d(z_grid, Q_grid, kind='cubic')
+
 def h_m_z(z, mass_flow_rate):
-    #===Calculate inlet properties===
-    h_in = steamTable.h_pt(p_in, T_in) # [kJ/kg]
-    
-    #===Calculate enthalpy at position z===
-    q_dz = lambda z: heat_flux_pin(z) * (math.pi * D_rod ) # [W]
-    h_m_z = h_in + (quad(q_dz, -L_heated/2, z)[0]/ mass_flow_rate)  / 1000 # [kJ/kg]
-    return h_m_z
+    h_in = steamTable.h_pt(p_in, T_in)  # kJ/kg
+    Q = float(Q_interp(z))              # W (integrated)
+    return h_in + Q / (mass_flow_rate * 1000)  # kJ/kg
+
 
 def x_e_z(z, mass_flow_rate, p):
     #===Calculate dynamic quality at position z===
@@ -582,7 +595,7 @@ root_correlation.mainloop()
 # Print the result (optional)
 print("Correlation chosen:", heat_transfer_correlation_choice)
 
-n_mass_flow_rate = 90 # max 90
+n_mass_flow_rate = 10 # max 90
 mass_flow_rate_list_final = [i * 2.5 / n_mass_flow_rate for i in range(1, n_mass_flow_rate+1)] # [kg/s]
 
 #===First graph: Liquid region (from 0 to zD (Zsc))===
